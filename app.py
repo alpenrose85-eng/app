@@ -38,6 +38,14 @@ with col2:
     p_MPa = st.number_input("Давление пара p, МПа", value=27.93, min_value=1.0, max_value=35.0)
     k_zapas = st.number_input("Коэффициент запаса k_зап", value=1.5, min_value=1.0, max_value=2.0)
 
+# --- Настройки графика ---
+st.header("3. Настройки графика (для вставки в отчёт)")
+col1, col2 = st.columns(2)
+with col1:
+    fig_width = st.slider("Ширина графика (дюймы)", min_value=6, max_value=16, value=10)
+with col2:
+    fig_height = st.slider("Высота графика (дюймы)", min_value=4, max_value=12, value=6)
+
 # --- Расчёт при нажатии кнопки ---
 if st.button("Рассчитать остаточный ресурс"):
     try:
@@ -55,6 +63,9 @@ if st.button("Рассчитать остаточный ресурс"):
         A = np.vstack([X, np.ones(len(X))]).T
         a, b = np.linalg.lstsq(A, y, rcond=None)[0]
         R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
+
+        # Уравнение с 3 знаками после запятой
+        уравнение = f"log₁₀(σ) = {a:.3f} · P + {b:.3f}"
 
         # --- 4. Скорость коррозии ---
         if s_max > s_nom:
@@ -75,9 +86,8 @@ if st.button("Рассчитать остаточный ресурс"):
             sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
             sigma_rasch = k_zapas * sigma_k2
 
-            # Защита от выхода за пределы модели
             if sigma_rasch < 20 or sigma_rasch > 150:
-                st.warning(f"Расчётное напряжение ({sigma_rasch:.1f} МПа) выходит за диапазон модели (20–150 МПа). Результат может быть неточным.")
+                st.warning(f"Расчётное напряжение ({sigma_rasch:.1f} МПа) выходит за диапазон модели (20–150 МПа).")
 
             P_rab = (np.log10(sigma_rasch) - b) / a
             log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - 24.88
@@ -96,7 +106,7 @@ if st.button("Рассчитать остаточный ресурс"):
             if iter_num > 30:
                 tau_prognoz += -100 if delta > 240 else 100
 
-        # --- 6. График ---
+        # --- 6. График с настраиваемым размером ---
         sigma_vals = np.linspace(20, 150, 300)
         P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
         P_appr = (np.log10(sigma_vals) - b) / a
@@ -104,7 +114,7 @@ if st.button("Рассчитать остаточный ресурс"):
         P_min = min(P_dop.min(), df_tests["P"].min(), P_appr.min())
         P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
-        plt.figure(figsize=(10, 6))
+        plt.figure(figsize=(fig_width, fig_height))
         plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемые напряжения')
         plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
         plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label='Все точки')
@@ -121,6 +131,7 @@ if st.button("Рассчитать остаточный ресурс"):
         st.header("Результаты расчёта")
         if converged:
             st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
+            st.write(f"- Уравнение аппроксимации: **{уравнение}**")
             st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch:.1f} МПа**")
             st.write(f"- Мин. толщина после ресурса: **{s_min2:.3f} мм**")
             st.write(f"- Время до разрушения по модели: **{tau_r:,.0f} ч**")
