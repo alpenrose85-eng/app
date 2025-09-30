@@ -38,13 +38,15 @@ with col2:
     p_MPa = st.number_input("Давление пара p, МПа", value=27.93, min_value=1.0, max_value=35.0)
     k_zapas = st.number_input("Коэффициент запаса k_зап", value=1.5, min_value=1.0, max_value=2.0)
 
-# --- Настройки графика ---
+# --- Настройки графика в сантиметрах ---
 st.header("3. Настройки графика (для вставки в отчёт)")
 col1, col2 = st.columns(2)
 with col1:
-    fig_width = st.slider("Ширина графика (дюймы)", min_value=6, max_value=16, value=10)
+    fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=17, value=15, step=1)
+    fig_width_in = fig_width_cm / 2.54  # см → дюймы
 with col2:
-    fig_height = st.slider("Высота графика (дюймы)", min_value=4, max_value=12, value=6)
+    fig_height_cm = st.slider("Высота графика (см)", min_value=8, max_value=12, value=10, step=1)
+    fig_height_in = fig_height_cm / 2.54
 
 # --- Расчёт при нажатии кнопки ---
 if st.button("Рассчитать остаточный ресурс"):
@@ -106,7 +108,7 @@ if st.button("Рассчитать остаточный ресурс"):
             if iter_num > 30:
                 tau_prognoz += -100 if delta > 240 else 100
 
-        # --- 6. График с настраиваемым размером ---
+        # --- 6. График с фиксированным размером ---
         sigma_vals = np.linspace(20, 150, 300)
         P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
         P_appr = (np.log10(sigma_vals) - b) / a
@@ -114,7 +116,7 @@ if st.button("Рассчитать остаточный ресурс"):
         P_min = min(P_dop.min(), df_tests["P"].min(), P_appr.min())
         P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
-        plt.figure(figsize=(fig_width, fig_height))
+        plt.figure(figsize=(fig_width_in, fig_height_in))
         plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемые напряжения')
         plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
         plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label='Все точки')
@@ -139,7 +141,7 @@ if st.button("Рассчитать остаточный ресурс"):
         else:
             st.error("❌ Не удалось достичь сходимости. Попробуйте другие параметры.")
 
-        st.pyplot(plt)
+        st.pyplot(plt, use_container_width=False)
 
     except Exception as e:
         st.error(f"Произошла ошибка: {e}")
