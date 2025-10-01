@@ -244,8 +244,8 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.ylim(20, 150)
             
             # Красивые подписи осей
-            plt.xlabel(f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.3f}) \\cdot 10^{{-3}}$")
-            plt.ylabel(r"Напряжение $\sigma$, МПа")
+            plt.xlabel(f" $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$")
+            plt.ylabel(r" $\sigma$, МПа")
             
             plt.legend()
             plt.grid(True)
