@@ -280,12 +280,12 @@ if st.button("Рассчитать остаточный ресурс"):
             
             # Динамическая подпись оси X
             if selected_param == "Трунина":
-                xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
+                xlabel_text = f"$P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
             else:  # Ларсона-Миллера
                 xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.2f}) \\cdot 10^{{-3}}$"
             
             plt.xlabel(xlabel_text)
-            plt.ylabel(r"Напряжение $\sigma$, МПа")
+            plt.ylabel(r"$\sigma$, МПа")
             
             plt.legend()
             plt.grid(True)
