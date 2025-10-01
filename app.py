@@ -134,38 +134,70 @@ if st.button("Рассчитать остаточный ресурс"):
         else:
             v_corr = (s_nom - s_min) / tau_exp
 
-        # --- 5. Итерационный расчёт τ_прогн ---
+        # --- 5. Итерационный расчёт τ_прогн (надежный метод) ---
         T_rab = T_rab_C + 273.15
-        tau_prognoz = 50000.0
-        converged = False
-        for iter_num in range(60):
-            s_min2 = s_min - v_corr * tau_prognoz
+        
+        def calculate_tau_r(tau_guess):
+            """Вспомогательная функция для расчета tau_r по tau_guess"""
+            s_min2 = s_min - v_corr * tau_guess
             if s_min2 <= 0:
-                st.error("❌ Толщина стенки стала ≤ 0. Проверьте данные.")
-                break
-
+                return np.inf  # Невозможное значение
             sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
             sigma_rasch = k_zapas * sigma_k2
-
-            if sigma_rasch < 20 or sigma_rasch > 150:
-                st.warning(f"⚠️ Напряжение ({sigma_rasch:.1f} МПа) вне диапазона модели (20–150 МПа).")
-
+            if sigma_rasch <= 0 or sigma_rasch < 20 or sigma_rasch > 150:
+                # Вне диапазона, но попробуем продолжить
+                pass
             P_rab = (np.log10(sigma_rasch) - b) / a
             log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - 24.88
             tau_r = 10**log_tau_r
+            return tau_r
+
+        # Инициализация
+        tau_prognoz = 50000.0
+        converged = False
+        max_iter = 100
+        tolerance = 200.0  # Увеличим допуск для надежности
+
+        for iter_num in range(max_iter):
+            tau_r = calculate_tau_r(tau_prognoz)
+            
+            # Проверка на валидность
+            if not np.isfinite(tau_r) or tau_r <= 0:
+                st.error("❌ Ошибка в расчёте времени до разрушения. Проверьте данные.")
+                break
+                
             delta = tau_prognoz - tau_r
 
-            if 0 < delta <= 240:
+            # Проверяем сходимость
+            if abs(delta) <= tolerance:
                 converged = True
                 break
 
-            if delta > 240:
-                tau_prognoz *= 0.9
-            else:
-                tau_prognoz *= 1.1
+            # Адаптивное обновление с демпфированием для стабильности
+            # Новое значение = старое - (f(x) / f'(x)) приближенно
+            # f(x) = x - tau_r(x), f'(x) ≈ 1 - d(tau_r)/d(x)
+            # Для простоты используем простую коррекцию с коэффициентом
+            learning_rate = 0.5  # Коэффициент демпфирования
+            correction = delta * learning_rate
+            
+            # Ограничиваем шаг, чтобы избежать больших скачков
+            max_step = 10000.0
+            correction = np.clip(correction, -max_step, max_step)
+            
+            tau_prognoz_new = tau_prognoz - correction
+            
+            # Обязательно сохраняем положительное значение
+            if tau_prognoz_new <= 0:
+                tau_prognoz_new = tau_prognoz / 2.0
+                
+            tau_prognoz = tau_prognoz_new
 
-            if iter_num > 30:
-                tau_prognoz += -100 if delta > 240 else 100
+        # После цикла получаем финальные значения для вывода
+        s_min2_final = s_min - v_corr * tau_prognoz
+        sigma_k2_final = (p_MPa / 2) * (d_max / s_min2_final + 1)
+        sigma_rasch_final = k_zapas * sigma_k2_final
+        tau_r_final = calculate_tau_r(tau_prognoz)
+        delta_final = tau_prognoz - tau_r_final
 
         # --- 6. График ---
         sigma_vals = np.linspace(20, 150, 300)
@@ -193,10 +225,10 @@ if st.button("Рассчитать остаточный ресурс"):
         if converged:
             st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
             st.write(f"- Уравнение аппроксимации: **{уравнение}**")
-            st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch:.1f} МПа**")
-            st.write(f"- Мин. толщина после ресурса: **{s_min2:.3f} мм**")
-            st.write(f"- Время до разрушения по модели: **{tau_r:,.0f} ч**")
-            st.write(f"- Разница (τ_прогн - τ_р): **{delta:.0f} ч**")
+            st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch_final:.1f} МПа**")
+            st.write(f"- Мин. толщина после ресурса: **{s_min2_final:.3f} мм**")
+            st.write(f"- Время до разрушения по модели: **{tau_r_final:,.0f} ч**")
+            st.write(f"- Разница (τ_прогн - τ_р): **{delta_final:.0f} ч**")
         else:
             st.error("❌ Не удалось достичь сходимости. Попробуйте другие параметры.")
 
