@@ -266,16 +266,16 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемые напряжения')
             plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
             plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label='Все точки')
-            plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшие')
+            plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее состояние')
 
             plt.xlim(P_min - 0.2, P_max + 0.2)
             plt.ylim(20, 150)
             
             # Динамическая подпись оси X
             if selected_param == "Трунина":
-                xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.3f}) \\cdot 10^{{-3}}$"
+                xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
             else:  # Ларсона-Миллера
-                xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.3f}) \\cdot 10^{{-3}}$"
+                xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.2f}) \\cdot 10^{{-3}}$"
             
             plt.xlabel(xlabel_text)
             plt.ylabel(r"Напряжение $\sigma$, МПа")
