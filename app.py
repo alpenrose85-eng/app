@@ -19,20 +19,33 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
 
-# --- Определение количества испытаний ---
+# --- Загрузка параметров или установка значений по умолчанию ---
 if project_data is not None:
     test_data = project_data.get("испытания", [])
     num_tests_from_file = len(test_data)
     params = project_data.get("параметры_трубы", {})
-    C_val = project_data.get("коэффициент_C", 24.88)  # Загружаем C из файла
+    selected_param = project_data.get("выбранный_параметр", "Трунина")
+    C_trunin_val = project_data.get("коэффициент_C_trunin", 24.88)
+    C_larson_val = project_data.get("коэффициент_C_larson", 20.0)
 else:
     test_data = []
     params = {}
     num_tests_from_file = 6
-    C_val = 24.88  # Значение по умолчанию
+    selected_param = "Трунина"
+    C_trunin_val = 24.88
+    C_larson_val = 20.0
 
-# Слайдер для выбора количества испытаний
-st.header("1. Настройка количества испытаний")
+# --- Выбор типа параметра долговечности ---
+st.header("1. Выберите параметр долговечности")
+param_options = ["Трунина", "Ларсона-Миллера"]
+selected_param = st.selectbox(
+    "Тип параметра",
+    options=param_options,
+    index=param_options.index(selected_param) if selected_param in param_options else 0
+)
+
+# --- Настройка количества испытаний ---
+st.header("2. Настройка количества испытаний")
 num_tests = st.slider(
     "Количество испытаний (образцов)",
     min_value=1,
@@ -41,12 +54,11 @@ num_tests = st.slider(
     step=1
 )
 
-# Если загружен файл, но пользователь изменил количество — сбросим данные
 if uploaded_file is not None and num_tests != num_tests_from_file:
     test_data = []
 
 # --- Ввод данных испытаний ---
-st.header("2. Введите данные испытаний")
+st.header("3. Введите данные испытаний")
 test_data_input = []
 for i in range(num_tests):
     col1, col2, col3, col4 = st.columns(4)
@@ -85,7 +97,7 @@ for i in range(num_tests):
 df_tests = pd.DataFrame(test_data_input)
 
 # --- Ввод параметров трубы ---
-st.header("3. Введите параметры трубы")
+st.header("4. Введите параметры трубы")
 col1, col2 = st.columns(2)
 with col1:
     s_nom_val = params.get("s_nom", 6.0)
@@ -112,18 +124,26 @@ with col2:
     k_zapas_val = params.get("k_zapas", 1.5)
     k_zapas = st.number_input("Коэффициент запаса k_зап", value=float(k_zapas_val), min_value=1.0, max_value=5.0)
 
-# --- Настройка коэффициента C и графика ---
-st.header("4. Дополнительные настройки")
+# --- Настройка коэффициентов и графика ---
+st.header("5. Дополнительные настройки")
 col1, col2 = st.columns(2)
 with col1:
-    # Слайдер для коэффициента C
-    C = st.number_input(
-        "Коэффициент C в параметре Трунина",
-        value=float(C_val),
-        min_value=0.0,
-        max_value=50.0,
-        format="%.3f"
-    )
+    if selected_param == "Трунина":
+        C = st.number_input(
+            "Коэффициент C в параметре Трунина",
+            value=float(C_trunin_val),
+            min_value=0.0,
+            max_value=50.0,
+            format="%.3f"
+        )
+    else:  # Ларсона-Миллера
+        C = st.number_input(
+            "Коэффициент C в параметре Ларсона-Миллера",
+            value=float(C_larson_val),
+            min_value=0.0,
+            max_value=50.0,
+            format="%.3f"
+        )
 with col2:
     fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=17, value=15, step=1)
     fig_width_in = fig_width_cm / 2.54
@@ -144,7 +164,9 @@ if st.sidebar.button("💾 Сохранить проект"):
             "p_MPa": p_MPa,
             "k_zapas": k_zapas
         },
-        "коэффициент_C": C  # Сохраняем C в файл
+        "выбранный_параметр": selected_param,
+        "коэффициент_C_trunin": C if selected_param == "Трунина" else C_trunin_val,
+        "коэффициент_C_larson": C if selected_param == "Ларсона-Миллера" else C_larson_val,
     }
     json_str = json.dumps(data_to_save, indent=2, ensure_ascii=False)
     st.sidebar.download_button(
@@ -160,9 +182,12 @@ if st.button("Рассчитать остаточный ресурс"):
         if len(df_tests) < 2:
             st.error("❌ Для аппроксимации необходимо минимум 2 точки испытаний.")
         else:
-            # --- 1. Расчёт P с использованием коэффициента C ---
+            # --- 1. Расчёт P в зависимости от выбранного параметра ---
             df_tests["T_K"] = df_tests["T_C"] + 273.15
-            df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) - 2 * np.log10(df_tests["T_K"]) + C) * 1e-3
+            if selected_param == "Трунина":
+                df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) - 2 * np.log10(df_tests["T_K"]) + C) * 1e-3
+            else:  # Ларсона-Миллера
+                df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) + C) * 1e-3
 
             # --- 2. Наихудшие образцы ---
             df_tests["group"] = df_tests["sigma_MPa"].astype(str) + "_" + df_tests["T_C"].astype(str)
@@ -192,8 +217,11 @@ if st.button("Рассчитать остаточный ресурс"):
                 sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
                 sigma_rasch = k_zapas * sigma_k2
                 P_rab = (np.log10(sigma_rasch) - b) / a
-                # Используем тот же C для обратного расчёта
-                log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - C
+                # Обратный расчёт tau_r в зависимости от выбранного параметра
+                if selected_param == "Трунина":
+                    log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - C
+                else:  # Ларсона-Миллера
+                    log_tau_r = P_rab / T_rab * 1000 - C
                 tau_r = 10**log_tau_r
                 return tau_r
 
@@ -226,7 +254,7 @@ if st.button("Рассчитать остаточный ресурс"):
             tau_r_final = calculate_tau_r(tau_prognoz)
             delta_final = tau_prognoz - tau_r_final
 
-            # --- 6. График с красивыми подписями ---
+            # --- 6. График с динамической подписью ---
             sigma_vals = np.linspace(20, 150, 300)
             P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
             P_appr = (np.log10(sigma_vals) - b) / a
@@ -243,17 +271,23 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.xlim(P_min - 0.2, P_max + 0.2)
             plt.ylim(20, 150)
             
-            # Красивые подписи осей
-            plt.xlabel(f" $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$")
-            plt.ylabel(r" $\sigma$, МПа")
+            # Динамическая подпись оси X
+            if selected_param == "Трунина":
+                xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.3f}) \\cdot 10^{{-3}}$"
+            else:  # Ларсона-Миллера
+                xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.3f}) \\cdot 10^{{-3}}$"
+            
+            plt.xlabel(xlabel_text)
+            plt.ylabel(r"Напряжение $\sigma$, МПа")
             
             plt.legend()
             plt.grid(True)
 
-            # --- 7. Вывод ---
+            # --- 7. Вывод результатов ---
             st.header("Результаты расчёта")
             if converged:
                 st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
+                st.write(f"- Использован параметр: **{selected_param}**")
                 st.write(f"- Уравнение аппроксимации: **{уравнение}**")
                 st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch_final:.1f} МПа**")
                 st.write(f"- Мин. толщина после ресурса: **{s_min2_final:.3f} мм**")
