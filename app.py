@@ -19,37 +19,71 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
 
-# --- Ввод данных с поддержкой загрузки ---
+# --- Определение количества испытаний ---
 if project_data is not None:
     test_data = project_data.get("испытания", [])
+    num_tests_from_file = len(test_data)
     params = project_data.get("параметры_трубы", {})
-    num_tests = len(test_data)
 else:
-    num_tests = 6
     test_data = []
     params = {}
+    num_tests_from_file = 6  # значение по умолчанию
 
-st.header("1. Введите данные испытаний")
+# Слайдер для выбора количества испытаний (всегда виден)
+st.header("1. Настройка количества испытаний")
+num_tests = st.slider(
+    "Количество испытаний (образцов)",
+    min_value=1,
+    max_value=100,
+    value=num_tests_from_file,
+    step=1
+)
+
+# Если загружен файл, но пользователь изменил количество — сбросим данные
+if uploaded_file is not None and num_tests != num_tests_from_file:
+    test_data = []  # сбросим, чтобы не было несоответствия
+
+# --- Ввод данных испытаний ---
+st.header("2. Введите данные испытаний")
 test_data_input = []
 for i in range(num_tests):
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         default_sample = test_data[i]["Образец"] if i < len(test_data) else f"Обр.{i+1}"
-        sample = col1.text_input(f"Образец {i+1}", value=str(default_sample))
+        sample = col1.text_input(f"Образец {i+1}", value=str(default_sample), key=f"sample_{i}")
     with col2:
         default_sigma = test_data[i]["sigma_MPa"] if i < len(test_data) else 120.0
-        sigma = col2.number_input(f"σ, МПа (исп. {i+1})", value=float(default_sigma), min_value=0.1, max_value=500.0)
+        sigma = col2.number_input(
+            f"σ, МПа (исп. {i+1})",
+            value=float(default_sigma),
+            min_value=0.1,
+            max_value=500.0,
+            key=f"sigma_{i}"
+        )
     with col3:
         default_T = test_data[i]["T_C"] if i < len(test_data) else 600.0
-        T_C = col3.number_input(f"T, °C (исп. {i+1})", value=float(default_T), min_value=100.0, max_value=1000.0)
+        T_C = col3.number_input(
+            f"T, °C (исп. {i+1})",
+            value=float(default_T),
+            min_value=100.0,
+            max_value=1000.0,
+            key=f"T_{i}"
+        )
     with col4:
         default_tau = test_data[i]["tau_h"] if i < len(test_data) else 500.0
-        tau_h = col4.number_input(f"τ, ч (исп. {i+1})", value=float(default_tau), min_value=1.0, max_value=1e7)
+        tau_h = col4.number_input(
+            f"τ, ч (исп. {i+1})",
+            value=float(default_tau),
+            min_value=1.0,
+            max_value=1e7,
+            key=f"tau_{i}"
+        )
     test_data_input.append({"Образец": sample, "sigma_MPa": sigma, "T_C": T_C, "tau_h": tau_h})
 
 df_tests = pd.DataFrame(test_data_input)
 
-st.header("2. Введите параметры трубы")
+# --- Ввод параметров трубы ---
+st.header("3. Введите параметры трубы")
 col1, col2 = st.columns(2)
 with col1:
     s_nom_val = params.get("s_nom", 6.0)
@@ -76,8 +110,8 @@ with col2:
     k_zapas_val = params.get("k_zapas", 1.5)
     k_zapas = st.number_input("Коэффициент запаса k_зап", value=float(k_zapas_val), min_value=1.0, max_value=5.0)
 
-# --- Настройки графика в сантиметрах ---
-st.header("3. Настройки графика (для вставки в отчёт)")
+# --- Настройки графика ---
+st.header("4. Настройки графика (для вставки в отчёт)")
 col1, col2 = st.columns(2)
 with col1:
     fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=17, value=15, step=1)
@@ -109,130 +143,111 @@ if st.sidebar.button("💾 Сохранить проект"):
         mime="application/json"
     )
 
-# --- Расчёт при нажатии кнопки ---
+# --- Расчёт ---
 if st.button("Рассчитать остаточный ресурс"):
     try:
-        # --- 1. Расчёт P ---
-        df_tests["T_K"] = df_tests["T_C"] + 273.15
-        df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) - 2 * np.log10(df_tests["T_K"]) + 24.88) * 1e-3
-
-        # --- 2. Наихудшие образцы ---
-        df_tests["group"] = df_tests["sigma_MPa"].astype(str) + "_" + df_tests["T_C"].astype(str)
-        worst_df = df_tests.loc[df_tests.groupby("group")["tau_h"].idxmin()].copy()
-
-        # --- 3. Аппроксимация log10(σ) = a*P + b ---
-        X = worst_df["P"].values
-        y = np.log10(worst_df["sigma_MPa"].values)
-        A = np.vstack([X, np.ones(len(X))]).T
-        a, b = np.linalg.lstsq(A, y, rcond=None)[0]
-        R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
-        уравнение = f"log₁₀(σ) = {a:.3f} · P + {b:.3f}"
-
-        # --- 4. Скорость коррозии ---
-        if s_max > s_nom:
-            v_corr = (s_max - s_min) / tau_exp
+        if len(df_tests) < 2:
+            st.error("❌ Для аппроксимации необходимо минимум 2 точки испытаний.")
         else:
-            v_corr = (s_nom - s_min) / tau_exp
+            # --- 1. Расчёт P ---
+            df_tests["T_K"] = df_tests["T_C"] + 273.15
+            df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) - 2 * np.log10(df_tests["T_K"]) + 24.88) * 1e-3
 
-        # --- 5. Итерационный расчёт τ_прогн (надежный метод) ---
-        T_rab = T_rab_C + 273.15
-        
-        def calculate_tau_r(tau_guess):
-            """Вспомогательная функция для расчета tau_r по tau_guess"""
-            s_min2 = s_min - v_corr * tau_guess
-            if s_min2 <= 0:
-                return np.inf  # Невозможное значение
-            sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
-            sigma_rasch = k_zapas * sigma_k2
-            if sigma_rasch <= 0 or sigma_rasch < 20 or sigma_rasch > 150:
-                # Вне диапазона, но попробуем продолжить
-                pass
-            P_rab = (np.log10(sigma_rasch) - b) / a
-            log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - 24.88
-            tau_r = 10**log_tau_r
-            return tau_r
+            # --- 2. Наихудшие образцы ---
+            df_tests["group"] = df_tests["sigma_MPa"].astype(str) + "_" + df_tests["T_C"].astype(str)
+            worst_df = df_tests.loc[df_tests.groupby("group")["tau_h"].idxmin()].copy()
 
-        # Инициализация
-        tau_prognoz = 50000.0
-        converged = False
-        max_iter = 100
-        tolerance = 200.0  # Увеличим допуск для надежности
+            # --- 3. Аппроксимация log10(σ) = a*P + b ---
+            X = worst_df["P"].values
+            y = np.log10(worst_df["sigma_MPa"].values)
+            A = np.vstack([X, np.ones(len(X))]).T
+            a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+            R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
+            уравнение = f"log₁₀(σ) = {a:.3f} · P + {b:.3f}"
 
-        for iter_num in range(max_iter):
-            tau_r = calculate_tau_r(tau_prognoz)
+            # --- 4. Скорость коррозии ---
+            if s_max > s_nom:
+                v_corr = (s_max - s_min) / tau_exp
+            else:
+                v_corr = (s_nom - s_min) / tau_exp
+
+            # --- 5. Итерационный расчёт τ_прогн ---
+            T_rab = T_rab_C + 273.15
             
-            # Проверка на валидность
-            if not np.isfinite(tau_r) or tau_r <= 0:
-                st.error("❌ Ошибка в расчёте времени до разрушения. Проверьте данные.")
-                break
-                
-            delta = tau_prognoz - tau_r
+            def calculate_tau_r(tau_guess):
+                s_min2 = s_min - v_corr * tau_guess
+                if s_min2 <= 0:
+                    return np.inf
+                sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
+                sigma_rasch = k_zapas * sigma_k2
+                P_rab = (np.log10(sigma_rasch) - b) / a
+                log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - 24.88
+                tau_r = 10**log_tau_r
+                return tau_r
 
-            # Проверяем сходимость
-            if abs(delta) <= tolerance:
-                converged = True
-                break
+            tau_prognoz = 50000.0
+            converged = False
+            max_iter = 100
+            tolerance = 200.0
 
-            # Адаптивное обновление с демпфированием для стабильности
-            # Новое значение = старое - (f(x) / f'(x)) приближенно
-            # f(x) = x - tau_r(x), f'(x) ≈ 1 - d(tau_r)/d(x)
-            # Для простоты используем простую коррекцию с коэффициентом
-            learning_rate = 0.5  # Коэффициент демпфирования
-            correction = delta * learning_rate
-            
-            # Ограничиваем шаг, чтобы избежать больших скачков
-            max_step = 10000.0
-            correction = np.clip(correction, -max_step, max_step)
-            
-            tau_prognoz_new = tau_prognoz - correction
-            
-            # Обязательно сохраняем положительное значение
-            if tau_prognoz_new <= 0:
-                tau_prognoz_new = tau_prognoz / 2.0
-                
-            tau_prognoz = tau_prognoz_new
+            for iter_num in range(max_iter):
+                tau_r = calculate_tau_r(tau_prognoz)
+                if not np.isfinite(tau_r) or tau_r <= 0:
+                    break
+                delta = tau_prognoz - tau_r
+                if abs(delta) <= tolerance:
+                    converged = True
+                    break
+                learning_rate = 0.5
+                correction = delta * learning_rate
+                max_step = 10000.0
+                correction = np.clip(correction, -max_step, max_step)
+                tau_prognoz_new = tau_prognoz - correction
+                if tau_prognoz_new <= 0:
+                    tau_prognoz_new = tau_prognoz / 2.0
+                tau_prognoz = tau_prognoz_new
 
-        # После цикла получаем финальные значения для вывода
-        s_min2_final = s_min - v_corr * tau_prognoz
-        sigma_k2_final = (p_MPa / 2) * (d_max / s_min2_final + 1)
-        sigma_rasch_final = k_zapas * sigma_k2_final
-        tau_r_final = calculate_tau_r(tau_prognoz)
-        delta_final = tau_prognoz - tau_r_final
+            # --- Финальные значения ---
+            s_min2_final = s_min - v_corr * tau_prognoz
+            sigma_k2_final = (p_MPa / 2) * (d_max / s_min2_final + 1)
+            sigma_rasch_final = k_zapas * sigma_k2_final
+            tau_r_final = calculate_tau_r(tau_prognoz)
+            delta_final = tau_prognoz - tau_r_final
 
-        # --- 6. График ---
-        sigma_vals = np.linspace(20, 150, 300)
-        P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
-        P_appr = (np.log10(sigma_vals) - b) / a
+            # --- 6. График ---
+            sigma_vals = np.linspace(20, 150, 300)
+            P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
+            P_appr = (np.log10(sigma_vals) - b) / a
 
-        P_min = min(P_dop.min(), df_tests["P"].min(), P_appr.min())
-        P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
+            P_min = min(P_dop.min(), df_tests["P"].min(), P_appr.min())
+            P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
-        plt.figure(figsize=(fig_width_in, fig_height_in))
-        plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемые напряжения')
-        plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
-        plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label='Все точки')
-        plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшие')
+            plt.figure(figsize=(fig_width_in, fig_height_in))
+            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемые напряжения')
+            plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
+            plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label='Все точки')
+            plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшие')
 
-        plt.xlim(P_min - 0.2, P_max + 0.2)
-        plt.ylim(20, 150)
-        plt.xlabel("Параметр долговечности P")
-        plt.ylabel("Напряжение σ, МПа")
-        plt.legend()
-        plt.grid(True)
+            plt.xlim(P_min - 0.2, P_max + 0.2)
+            plt.ylim(20, 150)
+            plt.xlabel("Параметр долговечности P")
+            plt.ylabel("Напряжение σ, МПа")
+            plt.legend()
+            plt.grid(True)
 
-        # --- 7. Вывод результатов ---
-        st.header("Результаты расчёта")
-        if converged:
-            st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
-            st.write(f"- Уравнение аппроксимации: **{уравнение}**")
-            st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch_final:.1f} МПа**")
-            st.write(f"- Мин. толщина после ресурса: **{s_min2_final:.3f} мм**")
-            st.write(f"- Время до разрушения по модели: **{tau_r_final:,.0f} ч**")
-            st.write(f"- Разница (τ_прогн - τ_р): **{delta_final:.0f} ч**")
-        else:
-            st.error("❌ Не удалось достичь сходимости. Попробуйте другие параметры.")
+            # --- 7. Вывод ---
+            st.header("Результаты расчёта")
+            if converged:
+                st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
+                st.write(f"- Уравнение аппроксимации: **{уравнение}**")
+                st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch_final:.1f} МПа**")
+                st.write(f"- Мин. толщина после ресурса: **{s_min2_final:.3f} мм**")
+                st.write(f"- Время до разрушения по модели: **{tau_r_final:,.0f} ч**")
+                st.write(f"- Разница (τ_прогн - τ_р): **{delta_final:.0f} ч**")
+            else:
+                st.error("❌ Не удалось достичь сходимости. Попробуйте другие параметры.")
 
-        st.pyplot(plt, use_container_width=False)
+            st.pyplot(plt, use_container_width=False)
 
     except Exception as e:
         st.error(f"Произошла ошибка: {e}")
