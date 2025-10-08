@@ -270,7 +270,7 @@ if st.button("Рассчитать остаточный ресурс"):
             P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
             plt.figure(figsize=(fig_width_in, fig_height_in))
-            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемые напряжения')
+            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение длительной')
             plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
             plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)  # <-- Используем название серии
             plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее состояние')
