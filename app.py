@@ -281,7 +281,7 @@ if st.button("Рассчитать остаточный ресурс"):
             tau_r_final = calculate_tau_r(tau_prognoz)
             delta_final = tau_prognoz - tau_r_final
 
-            # --- 6. График ---
+            # --- 6. График с улучшенной легендой ---
             sigma_vals = np.linspace(20, 150, 300)
             P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
             P_appr = (np.log10(sigma_vals) - b) / a
@@ -290,14 +290,16 @@ if st.button("Рассчитать остаточный ресурс"):
             P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
             plt.figure(figsize=(fig_width_in, fig_height_in))
-            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение длительной прочности')
-            plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
+            # Разбиваем длинные подписи на строки
+            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение\nдлительной прочности')
+            plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация\n(R² = {R2:.3f})')
             plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)
-            plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее состояние')
+            plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее\nсостояние')
 
             plt.xlim(P_min - 0.2, P_max + 0.2)
             plt.ylim(20, 150)
             
+            # Подпись оси X
             if selected_param == "Трунина":
                 xlabel_text = f"$P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
             else:
@@ -306,13 +308,16 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.xlabel(xlabel_text)
             plt.ylabel(r"$\sigma$, МПа")
             
+            # Легенда: компактная, с переносом, не наезжает
             plt.legend(
-                fontsize='small',
+                fontsize='x-small',
                 frameon=True,
                 fancybox=True,
-                loc='best',
-                handlelength=2.5,
-                handletextpad=0.5
+                shadow=False,
+                loc='upper right',
+                handlelength=2.0,
+                handletextpad=0.4,
+                borderaxespad=0.6
             )
             plt.grid(True)
 
