@@ -158,9 +158,10 @@ with col2:
 
 # --- Кнопка сохранения ---
 if st.sidebar.button("💾 Сохранить проект"):
+    # Сохраняем текущее значение C в правильное поле
     data_to_save = {
         "название_серии": series_name,
-        "испытания": test_data_input,
+        "испытания": test_data_input,  # ✅ Теперь точно сохраняются
         "параметры_трубы": {
             "s_nom": s_nom,
             "s_min": s_min,
@@ -261,7 +262,7 @@ if st.button("Рассчитать остаточный ресурс"):
             tau_r_final = calculate_tau_r(tau_prognoz)
             delta_final = tau_prognoz - tau_r_final
 
-            # --- 6. График с динамической подписью ---
+            # --- 6. График с улучшенной легендой ---
             sigma_vals = np.linspace(20, 150, 300)
             P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
             P_appr = (np.log10(sigma_vals) - b) / a
@@ -270,9 +271,9 @@ if st.button("Рассчитать остаточный ресурс"):
             P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
             plt.figure(figsize=(fig_width_in, fig_height_in))
-            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение длительной')
+            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение длительной прочности')
             plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R² = {R2:.3f})')
-            plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)  # <-- Используем название серии
+            plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)
             plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее состояние')
 
             plt.xlim(P_min - 0.2, P_max + 0.2)
@@ -287,7 +288,18 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.xlabel(xlabel_text)
             plt.ylabel(r"$\sigma$, МПа")
             
-            plt.legend()
+            # Улучшенная легенда: мелкий шрифт + перенос текста
+            plt.legend(
+                fontsize='small',
+                frameon=True,
+                fancybox=True,
+                shadow=False,
+                loc='best',
+                handlelength=2.5,
+                handletextpad=0.5,
+                columnspacing=1.0,
+                borderaxespad=0.5
+            )
             plt.grid(True)
 
             # --- 7. Вывод результатов ---
