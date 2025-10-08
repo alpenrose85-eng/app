@@ -10,23 +10,32 @@ st.title("Определение остаточного ресурса змее�
 # --- Инициализация session_state ---
 if 'test_data_input' not in st.session_state:
     st.session_state.test_data_input = []
+if 'widget_prefix' not in st.session_state:
+    st.session_state.widget_prefix = "default"
 
 # --- Загрузка / сохранение проекта ---
 st.sidebar.header("📁 Сохранить / загрузить проект")
 uploaded_file = st.sidebar.file_uploader("Загрузите проект (.json)", type=["json"])
 project_data = None
 
+# Управление префиксом ключей для сброса кэша виджетов при загрузке
 if uploaded_file is not None:
     try:
         project_data = json.load(uploaded_file)
         st.sidebar.success("✅ Проект загружен!")
+        # Создаём уникальный префикс на основе содержимого проекта
+        prefix_seed = json.dumps(project_data, sort_keys=True, ensure_ascii=False)
+        st.session_state.widget_prefix = "loaded_" + str(hash(prefix_seed))[:12]
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
+        st.session_state.widget_prefix = "default"
+else:
+    # Не меняем префикс, если файл не загружался
+    pass
 
 # --- Загрузка параметров или установка значений по умолчанию ---
 if project_data is not None:
     loaded_test_data = project_data.get("испытания", [])
-    num_tests_from_file = len(loaded_test_data)
     params = project_data.get("параметры_трубы", {})
     selected_param = project_data.get("выбранный_параметр", "Трунина")
     C_trunin_val = project_data.get("коэффициент_C_trunin", 24.88)
@@ -36,14 +45,13 @@ if project_data is not None:
     st.session_state.test_data_input = loaded_test_data.copy()
 else:
     params = {}
-    num_tests_from_file = 6
     selected_param = "Трунина"
     C_trunin_val = 24.88
     C_larson_val = 20.0
     series_name = "Образцы"
-    # Инициализируем пустыми или дефолтными
+    # Инициализируем пустыми или дефолтными, только если ещё не задано
     if not st.session_state.test_data_input:
-        st.session_state.test_data_input = [{"Образец": f"Обр.{i+1}", "sigma_MPa": 120.0, "T_C": 600.0, "tau_h": 500.0} for i in range(num_tests_from_file)]
+        st.session_state.test_data_input = [{"Образец": f"Обр.{i+1}", "sigma_MPa": 120.0, "T_C": 600.0, "tau_h": 500.0} for i in range(6)]
 
 # --- Название серии испытаний ---
 st.header("0. Название серии испытаний")
@@ -72,11 +80,9 @@ num_tests = st.slider(
 if len(st.session_state.test_data_input) != num_tests:
     current = st.session_state.test_data_input
     if num_tests > len(current):
-        # Добавляем новые
         for i in range(len(current), num_tests):
             current.append({"Образец": f"Обр.{i+1}", "sigma_MPa": 120.0, "T_C": 600.0, "tau_h": 500.0})
     else:
-        # Обрезаем
         current = current[:num_tests]
     st.session_state.test_data_input = current
 
@@ -88,7 +94,7 @@ for i in range(num_tests):
         sample = col1.text_input(
             f"Образец {i+1}",
             value=st.session_state.test_data_input[i]["Образец"],
-            key=f"sample_{i}"
+            key=f"{st.session_state.widget_prefix}_sample_{i}"
         )
     with col2:
         sigma = col2.number_input(
@@ -96,7 +102,7 @@ for i in range(num_tests):
             value=float(st.session_state.test_data_input[i]["sigma_MPa"]),
             min_value=0.1,
             max_value=500.0,
-            key=f"sigma_{i}"
+            key=f"{st.session_state.widget_prefix}_sigma_{i}"
         )
     with col3:
         T_C = col3.number_input(
@@ -104,7 +110,7 @@ for i in range(num_tests):
             value=float(st.session_state.test_data_input[i]["T_C"]),
             min_value=100.0,
             max_value=1000.0,
-            key=f"T_{i}"
+            key=f"{st.session_state.widget_prefix}_T_{i}"
         )
     with col4:
         tau_h = col4.number_input(
@@ -112,7 +118,7 @@ for i in range(num_tests):
             value=float(st.session_state.test_data_input[i]["tau_h"]),
             min_value=1.0,
             max_value=1e7,
-            key=f"tau_{i}"
+            key=f"{st.session_state.widget_prefix}_tau_{i}"
         )
     # Обновляем session_state
     st.session_state.test_data_input[i] = {
@@ -182,7 +188,7 @@ with col2:
 if st.sidebar.button("💾 Сохранить проект"):
     data_to_save = {
         "название_серии": series_name,
-        "испытания": st.session_state.test_data_input,  # ✅ Гарантированно актуальные данные
+        "испытания": st.session_state.test_data_input,
         "параметры_трубы": {
             "s_nom": s_nom,
             "s_min": s_min,
@@ -211,18 +217,18 @@ if st.button("Рассчитать остаточный ресурс"):
         if len(df_tests) < 2:
             st.error("❌ Для аппроксимации необходимо минимум 2 точки испытаний.")
         else:
-            # --- 1. Расчёт P в зависимости от выбранного параметра ---
+            # --- 1. Расчёт P ---
             df_tests["T_K"] = df_tests["T_C"] + 273.15
             if selected_param == "Трунина":
                 df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) - 2 * np.log10(df_tests["T_K"]) + C) * 1e-3
-            else:  # Ларсона-Миллера
+            else:
                 df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) + C) * 1e-3
 
             # --- 2. Наихудшие образцы ---
             df_tests["group"] = df_tests["sigma_MPa"].astype(str) + "_" + df_tests["T_C"].astype(str)
             worst_df = df_tests.loc[df_tests.groupby("group")["tau_h"].idxmin()].copy()
 
-            # --- 3. Аппроксимация log10(σ) = a*P + b ---
+            # --- 3. Аппроксимация ---
             X = worst_df["P"].values
             y = np.log10(worst_df["sigma_MPa"].values)
             A = np.vstack([X, np.ones(len(X))]).T
@@ -281,7 +287,7 @@ if st.button("Рассчитать остаточный ресурс"):
             tau_r_final = calculate_tau_r(tau_prognoz)
             delta_final = tau_prognoz - tau_r_final
 
-            # --- 6. График с улучшенной легендой ---
+            # --- 6. График ---
             sigma_vals = np.linspace(20, 150, 300)
             P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
             P_appr = (np.log10(sigma_vals) - b) / a
@@ -290,7 +296,6 @@ if st.button("Рассчитать остаточный ресурс"):
             P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
             plt.figure(figsize=(fig_width_in, fig_height_in))
-            # Разбиваем длинные подписи на строки
             plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение\nдлительной прочности')
             plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация\n(R² = {R2:.3f})')
             plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)
@@ -299,7 +304,6 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.xlim(P_min - 0.2, P_max + 0.2)
             plt.ylim(20, 150)
             
-            # Подпись оси X
             if selected_param == "Трунина":
                 xlabel_text = f"$P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
             else:
@@ -308,7 +312,6 @@ if st.button("Рассчитать остаточный ресурс"):
             plt.xlabel(xlabel_text)
             plt.ylabel(r"$\sigma$, МПа")
             
-            # Легенда: компактная, с переносом, не наезжает
             plt.legend(
                 fontsize='x-small',
                 frameon=True,
