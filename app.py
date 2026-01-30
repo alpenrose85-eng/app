@@ -16,6 +16,7 @@ if 'widget_prefix' not in st.session_state:
 # --- Загрузка / сохранение проекта ---
 st.sidebar.header("📁 Сохранить / загрузить проект")
 uploaded_file = st.sidebar.file_uploader("Загрузите проект (.json)", type=["json"])
+uploaded_excel = st.sidebar.file_uploader("Загрузите данные испытаний (.xlsx)", type=["xlsx", "xls"])
 project_data = None
 
 # Управление префиксом ключей для сброса кэша виджетов при загрузке
@@ -33,11 +34,44 @@ else:
     # Не меняем префикс, если файл не загружался
     pass
 
+# --- Загрузка данных из Excel ---
+if uploaded_excel is not None:
+    try:
+        excel_data = pd.read_excel(uploaded_excel)
+        
+        # Проверяем наличие необходимых столбцов
+        required_columns = ['Образец', 'sigma_MPa', 'T_C', 'tau_h']
+        missing_columns = [col for col in required_columns if col not in excel_data.columns]
+        
+        if missing_columns:
+            st.sidebar.error(f"❌ В файле Excel отсутствуют необходимые столбцы: {missing_columns}")
+            st.sidebar.info("📋 Нужные столбцы: Образец, sigma_MPa, T_C, tau_h")
+        else:
+            # Преобразуем данные в нужный формат
+            test_data_from_excel = []
+            for _, row in excel_data.iterrows():
+                test_data_from_excel.append({
+                    "Образец": str(row['Образец']),
+                    "sigma_MPa": float(row['sigma_MPa']),
+                    "T_C": float(row['T_C']),
+                    "tau_h": float(row['tau_h'])
+                })
+            
+            st.session_state.test_data_input = test_data_from_excel
+            st.sidebar.success(f"✅ Загружено {len(test_data_from_excel)} испытаний из Excel")
+            
+            # Обновляем префикс для сброса кэша виджетов
+            st.session_state.widget_prefix = f"excel_{hash(str(test_data_from_excel))[:12]}"
+            
+    except Exception as e:
+        st.sidebar.error(f"❌ Ошибка при чтении Excel файла: {e}")
+
 # --- Загрузка параметров или установка значений по умолчанию ---
 if project_data is not None:
     loaded_test_data = project_data.get("испытания", [])
     params = project_data.get("параметры_трубы", {})
     selected_param = project_data.get("выбранный_параметр", "Трунина")
+    selected_steel = project_data.get("марка_стали", "12Х1МФ")  # NEW
     C_trunin_val = project_data.get("коэффициент_C_trunin", 24.88)
     C_larson_val = project_data.get("коэффициент_C_larson", 20.0)
     series_name = project_data.get("название_серии", "Образцы")
@@ -46,6 +80,7 @@ if project_data is not None:
 else:
     params = {}
     selected_param = "Трунина"
+    selected_steel = "12Х1МФ"  # NEW
     C_trunin_val = 24.88
     C_larson_val = 20.0
     series_name = "Образцы"
@@ -57,8 +92,17 @@ else:
 st.header("0. Название серии испытаний")
 series_name = st.text_input("Введите название серии образцов", value=series_name)
 
+# --- Выбор марки стали ---
+st.header("1. Выберите марку стали")
+steel_options = ["12Х1МФ", "12Х18Н12Т"]  # NEW
+selected_steel = st.selectbox(
+    "Марка стали",
+    options=steel_options,
+    index=steel_options.index(selected_steel) if selected_steel in steel_options else 0
+)
+
 # --- Выбор типа параметра долговечности ---
-st.header("1. Выберите параметр долговечности")
+st.header("2. Выберите параметр долговечности")
 param_options = ["Трунина", "Ларсона-Миллера"]
 selected_param = st.selectbox(
     "Тип параметра",
@@ -66,8 +110,40 @@ selected_param = st.selectbox(
     index=param_options.index(selected_param) if selected_param in param_options else 0
 )
 
+# --- Автоматическая установка коэффициентов в зависимости от марки стали ---
+# NEW: Функция для установки коэффициентов по умолчанию
+def set_default_coefficients(steel_grade, parameter):
+    if steel_grade == "12Х1МФ":
+        if parameter == "Трунина":
+            return 24.88
+        else:  # Ларсона-Миллера
+            return 20.0
+    elif steel_grade == "12Х18Н12Т":
+        if parameter == "Трунина":
+            return 26.3
+        else:  # Ларсона-Миллера
+            return 20.0
+    return 24.88  # значение по умолчанию
+
+# Применяем коэффициенты по умолчанию при изменении марки стали или параметра
+if 'prev_steel' not in st.session_state:
+    st.session_state.prev_steel = selected_steel
+if 'prev_param' not in st.session_state:
+    st.session_state.prev_param = selected_param
+
+if (st.session_state.prev_steel != selected_steel or 
+    st.session_state.prev_param != selected_param):
+    default_C = set_default_coefficients(selected_steel, selected_param)
+    if selected_param == "Трунина":
+        C_trunin_val = default_C
+    else:
+        C_larson_val = default_C
+    
+    st.session_state.prev_steel = selected_steel
+    st.session_state.prev_param = selected_param
+
 # --- Настройка количества испытаний ---
-st.header("2. Настройка количества испытаний")
+st.header("3. Настройка количества испытаний")
 num_tests = st.slider(
     "Количество испытаний (образцов)",
     min_value=1,
@@ -87,7 +163,7 @@ if len(st.session_state.test_data_input) != num_tests:
     st.session_state.test_data_input = current
 
 # --- Ввод данных испытаний ---
-st.header("3. Введите данные испытаний")
+st.header("4. Введите данные испытаний")
 for i in range(num_tests):
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -131,7 +207,7 @@ for i in range(num_tests):
 df_tests = pd.DataFrame(st.session_state.test_data_input)
 
 # --- Ввод параметров трубы ---
-st.header("4. Введите параметры трубы")
+st.header("5. Введите параметры трубы")
 col1, col2 = st.columns(2)
 with col1:
     s_nom_val = params.get("s_nom", 6.0)
@@ -159,7 +235,7 @@ with col2:
     k_zapas = st.number_input("Коэффициент запаса k_зап", value=float(k_zapas_val), min_value=1.0, max_value=5.0)
 
 # --- Настройка коэффициентов и графика ---
-st.header("5. Дополнительные настройки")
+st.header("6. Дополнительные настройки")
 col1, col2 = st.columns(2)
 with col1:
     if selected_param == "Трунина":
@@ -168,7 +244,8 @@ with col1:
             value=float(C_trunin_val),
             min_value=0.0,
             max_value=50.0,
-            format="%.3f"
+            format="%.3f",
+            help=f"По умолчанию для {selected_steel}: {set_default_coefficients(selected_steel, 'Трунина')}"
         )
     else:  # Ларсона-Миллера
         C = st.number_input(
@@ -176,7 +253,8 @@ with col1:
             value=float(C_larson_val),
             min_value=0.0,
             max_value=50.0,
-            format="%.3f"
+            format="%.3f",
+            help=f"По умолчанию для {selected_steel}: {set_default_coefficients(selected_steel, 'Ларсона-Миллера')}"
         )
 with col2:
     fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=17, value=15, step=1)
@@ -188,6 +266,7 @@ with col2:
 if st.sidebar.button("💾 Сохранить проект"):
     data_to_save = {
         "название_серии": series_name,
+        "марка_стали": selected_steel,  # NEW
         "испытания": st.session_state.test_data_input,
         "параметры_трубы": {
             "s_nom": s_nom,
@@ -210,6 +289,23 @@ if st.sidebar.button("💾 Сохранить проект"):
         file_name="проект_ресурса.json",
         mime="application/json"
     )
+
+# --- Информация о формате Excel файла ---
+with st.sidebar.expander("📋 Формат Excel файла"):
+    st.write("""
+    **Необходимые столбцы:**
+    - `Образец` - название образца (текст)
+    - `sigma_MPa` - напряжение, МПа (число)
+    - `T_C` - температура, °C (число)
+    - `tau_h` - время до разрушения, ч (число)
+    
+    **Пример:**
+    
+    | Образец | sigma_MPa | T_C | tau_h |
+    |---------|-----------|-----|-------|
+    | Обр.1   | 120.0     | 600 | 500   |
+    | Обр.2   | 130.0     | 610 | 450   |
+    """)
 
 # --- Расчёт ---
 if st.button("Рассчитать остаточный ресурс"):
@@ -287,16 +383,24 @@ if st.button("Рассчитать остаточный ресурс"):
             tau_r_final = calculate_tau_r(tau_prognoz)
             delta_final = tau_prognoz - tau_r_final
 
-            # --- 6. График ---
+            # --- 6. График с учетом марки стали ---
             sigma_vals = np.linspace(20, 150, 300)
-            P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
+            
+            # NEW: Выбор формулы допускаемых напряжений в зависимости от марки стали
+            if selected_steel == "12Х1МФ":
+                P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
+                steel_label = "12Х1МФ (допускаемое снижение\nдлительной прочности)"
+            elif selected_steel == "12Х18Н12Т":
+                P_dop = (30942 - 3762 * np.log10(sigma_vals) - 16.8 * sigma_vals) * 1e-3
+                steel_label = "12Х18Н12Т (допускаемое снижение\nдлительной прочности)"
+            
             P_appr = (np.log10(sigma_vals) - b) / a
 
             P_min = min(P_dop.min(), df_tests["P"].min(), P_appr.min())
             P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
 
             plt.figure(figsize=(fig_width_in, fig_height_in))
-            plt.plot(P_dop, sigma_vals, 'k-', label='Допускаемое снижение\nдлительной прочности')
+            plt.plot(P_dop, sigma_vals, 'k-', label=steel_label)
             plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация\n(R² = {R2:.3f})')
             plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)
             plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее\nсостояние')
@@ -311,6 +415,9 @@ if st.button("Рассчитать остаточный ресурс"):
             
             plt.xlabel(xlabel_text)
             plt.ylabel(r"$\sigma$, МПа")
+            
+            # Добавляем информацию о марке стали в заголовок
+            plt.title(f"Марка стали: {selected_steel}", fontsize=10, loc='right')
             
             plt.legend(
                 fontsize='x-small',
@@ -327,6 +434,7 @@ if st.button("Рассчитать остаточный ресурс"):
             st.header("Результаты расчёта")
             if converged:
                 st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
+                st.write(f"- Марка стали: **{selected_steel}**")
                 st.write(f"- Использован параметр: **{selected_param}**")
                 st.write(f"- Уравнение аппроксимации: **{уравнение}**")
                 st.write(f"- Расчётное напряжение с запасом: **{sigma_rasch_final:.1f} МПа**")
