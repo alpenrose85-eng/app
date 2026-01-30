@@ -29,6 +29,7 @@ if uploaded_file is not None:
         st.sidebar.success("✅ Проект загружен!")
         # Создаём уникальный префикс на основе содержимого проекта
         prefix_seed = json.dumps(project_data, sort_keys=True, ensure_ascii=False)
+        # Исправляем: hash() возвращает int, а не строку
         st.session_state.widget_prefix = "loaded_" + str(hash(prefix_seed))[:12]
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
@@ -55,52 +56,32 @@ if uploaded_excel is not None:
                 # Последняя попытка без указания движка
                 excel_data = pd.read_excel(io.BytesIO(excel_bytes))
         
-        # Показываем какие столбцы есть в файле для отладки
-        st.sidebar.write(f"Найдено столбцов: {len(excel_data.columns)}")
+        # Проверяем наличие необходимых столбцов
+        required_columns = ['Образец', 'sigma_MPa', 'T_C', 'tau_h']
         
-        # Проверяем наличие необходимых столбцов (с учетом возможных вариантов названий)
-        required_columns_mapping = {
-            'Образец': ['Образец', 'Sample', 'Номер', '№'],
-            'sigma_MPa': ['sigma_MPa', 'Напряжение', 'Stress', 'σ, МПа'],
-            'T_C': ['T_C', 'Температура', 'Temperature', 'T, °C'],
-            'tau_h': ['tau_h', 'Время', 'Time', 'τ, ч', 'Время до разрушения']
-        }
+        # Проверяем, есть ли все нужные столбцы
+        missing_columns = [col for col in required_columns if col not in excel_data.columns]
         
-        # Функция для поиска столбца по возможным названиям
-        def find_column(df, possible_names):
-            for name in possible_names:
-                if name in df.columns:
-                    return name
-            return None
-        
-        # Собираем найденные столбцы
-        found_columns = {}
-        for required_col, possible_names in required_columns_mapping.items():
-            found_name = find_column(excel_data, possible_names)
-            if found_name:
-                found_columns[required_col] = found_name
-            else:
-                st.sidebar.error(f"❌ Не найден столбец: {required_col}. Возможные названия: {possible_names}")
-        
-        if len(found_columns) == 4:
-            # Переименовываем столбцы для единообразия
-            excel_data_renamed = excel_data.rename(columns={
-                found_columns['Образец']: 'Образец',
-                found_columns['sigma_MPa']: 'sigma_MPa',
-                found_columns['T_C']: 'T_C',
-                found_columns['tau_h']: 'tau_h'
-            })
+        if missing_columns:
+            st.sidebar.error(f"❌ В файле Excel отсутствуют необходимые столбцы: {missing_columns}")
+            st.sidebar.info("📋 Нужные столбцы: Образец, sigma_MPa, T_C, tau_h")
             
+            # Показываем какие столбцы есть в файле
+            st.sidebar.write(f"Найденные столбцы: {list(excel_data.columns)}")
+        else:
             # Преобразуем данные в нужный формат
             test_data_from_excel = []
-            for _, row in excel_data_renamed.iterrows():
+            for _, row in excel_data.iterrows():
                 try:
-                    test_data_from_excel.append({
-                        "Образец": str(row['Образец']),
-                        "sigma_MPa": float(row['sigma_MPa']),
-                        "T_C": float(row['T_C']),
-                        "tau_h": float(row['tau_h'])
-                    })
+                    # Проверяем, что значения не NaN
+                    if (pd.notna(row['Образец']) and pd.notna(row['sigma_MPa']) and 
+                        pd.notna(row['T_C']) and pd.notna(row['tau_h'])):
+                        test_data_from_excel.append({
+                            "Образец": str(row['Образец']),
+                            "sigma_MPa": float(row['sigma_MPa']),
+                            "T_C": float(row['T_C']),
+                            "tau_h": float(row['tau_h'])
+                        })
                 except Exception as row_error:
                     st.sidebar.warning(f"Пропущена строка {_}: {row_error}")
                     continue
@@ -109,24 +90,20 @@ if uploaded_excel is not None:
                 st.session_state.test_data_input = test_data_from_excel
                 st.sidebar.success(f"✅ Загружено {len(test_data_from_excel)} испытаний из Excel")
                 
-                # Обновляем префикс для сброса кэша виджетов
-                st.session_state.widget_prefix = f"excel_{hash(str(test_data_from_excel))[:12]}"
+                # Исправляем: hash() возвращает int, преобразуем в строку
+                # Создаем уникальный префикс на основе данных
+                import hashlib
+                data_str = json.dumps(test_data_from_excel, sort_keys=True)
+                # Используем хэш MD5 или SHA256
+                hash_obj = hashlib.md5(data_str.encode()).hexdigest()[:12]
+                st.session_state.widget_prefix = f"excel_{hash_obj}"
             else:
                 st.sidebar.error("❌ Не удалось загрузить ни одной строки из Excel")
                 
-        else:
-            st.sidebar.error("❌ Не все необходимые столбцы найдены в файле")
-            st.sidebar.info("""
-            **Нужные столбцы (одно из названий):**
-            - Образец / Sample / Номер
-            - sigma_MPa / Напряжение / Stress / σ, МПа
-            - T_C / Температура / Temperature / T, °C
-            - tau_h / Время / Time / τ, ч / Время до разрушения
-            """)
-            
     except Exception as e:
-        st.sidebar.error(f"❌ Ошибка при чтении Excel файла: {str(e)[:200]}")
-        st.sidebar.info("Проверьте формат файла и наличие нужных столбцов")
+        st.sidebar.error(f"❌ Ошибка при чтении Excel файла: {str(e)}")
+        import traceback
+        st.sidebar.write(traceback.format_exc())
 
 # --- Загрузка параметров или установка значений по умолчанию ---
 if project_data is not None:
@@ -380,19 +357,12 @@ if st.sidebar.button("📥 Скачать шаблон Excel"):
 # --- Информация о формате Excel файла ---
 with st.sidebar.expander("📋 Формат Excel файла"):
     st.write("""
-    **Необходимые столбцы (одно из названий):**
+    **Необходимые столбцы:**
     
-    **Основные названия (рекомендуется):**
     - `Образец` - название образца
     - `sigma_MPa` - напряжение, МПа
     - `T_C` - температура, °C
     - `tau_h` - время до разрушения, ч
-    
-    **Альтернативные названия:**
-    - Образец / Sample / Номер / №
-    - sigma_MPa / Напряжение / Stress / σ, МПа
-    - T_C / Температура / Temperature / T, °C
-    - tau_h / Время / Time / τ, ч / Время до разрушения
     
     **Пример структуры файла:**
     
@@ -400,6 +370,9 @@ with st.sidebar.expander("📋 Формат Excel файла"):
     |---------|-----------|-----|-------|
     | Обр.1   | 120.0     | 600 | 500   |
     | Обр.2   | 130.0     | 610 | 450   |
+    | Обр.3   | 140.0     | 620 | 400   |
+    
+    **Примечание:** Вы можете скачать шаблон выше.
     """)
 
 # --- Расчёт ---
@@ -552,3 +525,5 @@ if st.button("Рассчитать остаточный ресурс"):
 
     except Exception as e:
         st.error(f"Произошла ошибка: {str(e)[:500]}")
+        import traceback
+        st.write(traceback.format_exc())
