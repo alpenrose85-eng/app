@@ -34,7 +34,7 @@ if uploaded_file is not None:
         st.session_state.widget_prefix = "loaded_" + str(hash(prefix_seed))[:12]
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
-        st.session_state.widget_prefix = "default")
+        st.session_state.widget_prefix = "default"
 else:
     pass
 
