@@ -28,23 +28,19 @@ if uploaded_file is not None:
     try:
         project_data = json.load(uploaded_file)
         st.sidebar.success("✅ Проект загружен!")
-        # Создаём уникальный префикс на основе содержимого проекта
         prefix_seed = json.dumps(project_data, sort_keys=True, ensure_ascii=False)
         st.session_state.widget_prefix = "loaded_" + str(hash(prefix_seed))[:12]
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
         st.session_state.widget_prefix = "default"
 else:
-    # Не меняем префикс, если файл не загружался
     pass
 
 # --- Загрузка данных из Excel ---
 if uploaded_excel is not None:
     try:
-        # Используем io.BytesIO для обработки загруженного файла
         excel_bytes = uploaded_excel.getvalue()
         
-        # Пробуем разные движки для чтения Excel
         try:
             excel_data = pd.read_excel(io.BytesIO(excel_bytes), engine='openpyxl')
         except Exception:
@@ -53,7 +49,6 @@ if uploaded_excel is not None:
             except Exception:
                 excel_data = pd.read_excel(io.BytesIO(excel_bytes))
         
-        # Проверяем наличие необходимых столбцов
         required_columns = ['Образец', 'sigma_MPa', 'T_C', 'tau_h']
         missing_columns = [col for col in required_columns if col not in excel_data.columns]
         
@@ -61,7 +56,6 @@ if uploaded_excel is not None:
             st.sidebar.error(f"❌ В файле Excel отсутствуют необходимые столбцы: {missing_columns}")
             st.sidebar.info("📋 Нужные столбцы: Образец, sigma_MPa, T_C, tau_h")
         else:
-            # Преобразуем данные в нужный формат
             test_data_from_excel = []
             for _, row in excel_data.iterrows():
                 test_data_from_excel.append({
@@ -74,7 +68,6 @@ if uploaded_excel is not None:
             st.session_state.test_data_input = test_data_from_excel
             st.sidebar.success(f"✅ Загружено {len(test_data_from_excel)} испытаний из Excel")
             
-            # Обновляем префикс для сброса кэша виджетов
             data_str = json.dumps(test_data_from_excel, sort_keys=True)
             hash_obj = hashlib.md5(data_str.encode()).hexdigest()[:12]
             st.session_state.widget_prefix = f"excel_{hash_obj}"
@@ -161,7 +154,7 @@ if (st.session_state.prev_steel != selected_steel or
 st.header("3. Настройка количества испытаний")
 num_tests = st.slider(
     "Количество испытаний (образцов)",
-    min_value=1,
+    min_value=0,
     max_value=100,
     value=len(st.session_state.test_data_input),
     step=1
@@ -179,46 +172,49 @@ if len(st.session_state.test_data_input) != num_tests:
 
 # --- Ввод данных испытаний ---
 st.header("4. Введите данные испытаний")
-for i in range(num_tests):
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        sample = col1.text_input(
-            f"Образец {i+1}",
-            value=st.session_state.test_data_input[i]["Образец"],
-            key=f"{st.session_state.widget_prefix}_sample_{i}"
-        )
-    with col2:
-        sigma = col2.number_input(
-            f"σ, МПа (исп. {i+1})",
-            value=float(st.session_state.test_data_input[i]["sigma_MPa"]),
-            min_value=0.1,
-            max_value=500.0,
-            key=f"{st.session_state.widget_prefix}_sigma_{i}"
-        )
-    with col3:
-        T_C = col3.number_input(
-            f"T, °C (исп. {i+1})",
-            value=float(st.session_state.test_data_input[i]["T_C"]),
-            min_value=100.0,
-            max_value=1000.0,
-            key=f"{st.session_state.widget_prefix}_T_{i}"
-        )
-    with col4:
-        tau_h = col4.number_input(
-            f"τ, ч (исп. {i+1})",
-            value=float(st.session_state.test_data_input[i]["tau_h"]),
-            min_value=1.0,
-            max_value=1e7,
-            key=f"{st.session_state.widget_prefix}_tau_{i}"
-        )
-    st.session_state.test_data_input[i] = {
-        "Образец": sample,
-        "sigma_MPa": sigma,
-        "T_C": T_C,
-        "tau_h": tau_h
-    }
+if num_tests > 0:
+    for i in range(num_tests):
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            sample = col1.text_input(
+                f"Образец {i+1}",
+                value=st.session_state.test_data_input[i]["Образец"],
+                key=f"{st.session_state.widget_prefix}_sample_{i}"
+            )
+        with col2:
+            sigma = col2.number_input(
+                f"σ, МПа (исп. {i+1})",
+                value=float(st.session_state.test_data_input[i]["sigma_MPa"]),
+                min_value=0.1,
+                max_value=500.0,
+                key=f"{st.session_state.widget_prefix}_sigma_{i}"
+            )
+        with col3:
+            T_C = col3.number_input(
+                f"T, °C (исп. {i+1})",
+                value=float(st.session_state.test_data_input[i]["T_C"]),
+                min_value=100.0,
+                max_value=1000.0,
+                key=f"{st.session_state.widget_prefix}_T_{i}"
+            )
+        with col4:
+            tau_h = col4.number_input(
+                f"τ, ч (исп. {i+1})",
+                value=float(st.session_state.test_data_input[i]["tau_h"]),
+                min_value=1.0,
+                max_value=1e7,
+                key=f"{st.session_state.widget_prefix}_tau_{i}"
+            )
+        st.session_state.test_data_input[i] = {
+            "Образец": sample,
+            "sigma_MPa": sigma,
+            "T_C": T_C,
+            "tau_h": tau_h
+        }
+else:
+    st.info("Нет данных испытаний. График будет построен только с кривой допускаемых напряжений.")
 
-df_tests = pd.DataFrame(st.session_state.test_data_input)
+df_tests = pd.DataFrame(st.session_state.test_data_input) if st.session_state.test_data_input else pd.DataFrame()
 
 # --- Ввод параметров трубы ---
 st.header("5. Введите параметры трубы")
@@ -326,94 +322,185 @@ if st.sidebar.button("📥 Скачать шаблон Excel"):
     )
 
 # --- Расчёт ---
-if st.button("Рассчитать остаточный ресурс"):
+if st.button("Построить график и рассчитать"):
     try:
-        if len(df_tests) < 2:
-            st.error("❌ Для аппроксимации необходимо минимум 2 точки испытаний.")
+        # --- 1. Расчет фактического напряжения в трубе ---
+        sigma_k2 = (p_MPa / 2) * (d_max / s_min + 1)
+        sigma_rasch_fact = k_zapas * sigma_k2
+        T_rab = T_rab_C + 273.15
+        
+        # Расчет P для фактического состояния (для графика)
+        if selected_param == "Трунина":
+            P_fact = T_rab * (np.log10(tau_exp) - 2 * np.log10(T_rab) + C) * 1e-3
         else:
-            # --- 1. Расчёт параметра P для испытаний ---
+            P_fact = T_rab * (np.log10(tau_exp) + C) * 1e-3
+        
+        # --- 2. Расчет для точек испытаний (если есть) ---
+        if len(df_tests) > 0:
             df_tests["T_K"] = df_tests["T_C"] + 273.15
             
-            # ВАЖНО: Подбираем формулу в зависимости от выбранного параметра и марки стали
             if selected_param == "Трунина":
                 df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) - 2 * np.log10(df_tests["T_K"]) + C) * 1e-3
-                st.info(f"Используется параметр Трунина с C = {C:.2f} для стали {selected_steel}")
             else:
                 df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) + C) * 1e-3
-                st.info(f"Используется параметр Ларсона-Миллера с C = {C:.2f} для стали {selected_steel}")
             
-            # --- 2. Отображение данных испытаний ---
-            st.subheader("Данные испытаний с рассчитанным параметром P")
-            st.dataframe(df_tests[["Образец", "sigma_MPa", "T_C", "tau_h", "P"]].round(4))
+            # Находим наихудшие образцы (если есть повторения)
+            if len(df_tests) > 1:
+                df_tests["group"] = df_tests["sigma_MPa"].astype(str) + "_" + df_tests["T_C"].astype(str)
+                worst_df = df_tests.loc[df_tests.groupby("group")["tau_h"].idxmin()].copy()
+            else:
+                worst_df = df_tests.copy()
+        
+        # --- 3. Построение графика ---
+        sigma_vals = np.linspace(20, 150, 300)
+        
+        # Выбор формулы допускаемых напряжений в зависимости от марки стали
+        if selected_steel == "12Х1МФ":
+            P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
+            steel_label = f"12Х1МФ (допускаемое снижение длительной прочности)"
+        elif selected_steel == "12Х18Н12Т":
+            P_dop = (30942 - 3762 * np.log10(sigma_vals) - 16.8 * sigma_vals) * 1e-3
+            steel_label = f"12Х18Н12Т (допускаемое снижение длительной прочности)"
+        
+        # Создаем график
+        plt.figure(figsize=(fig_width_in, fig_height_in))
+        
+        # 1. Кривая допускаемых напряжений
+        plt.plot(P_dop, sigma_vals, 'k-', label=steel_label, linewidth=2)
+        
+        # 2. Точки испытаний (если есть)
+        if len(df_tests) > 0:
+            plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', s=50, label=series_name)
             
-            # --- 3. Наихудшие образцы ---
-            df_tests["group"] = df_tests["sigma_MPa"].astype(str) + "_" + df_tests["T_C"].astype(str)
-            worst_df = df_tests.loc[df_tests.groupby("group")["tau_h"].idxmin()].copy()
-            
-            st.subheader("Наихудшие образцы (минимальное время до разрушения)")
-            st.dataframe(worst_df[["Образец", "sigma_MPa", "T_C", "tau_h", "P"]].round(4))
-            
-            # --- 4. Аппроксимация ---
+            # Наихудшие точки (если больше 1 точки)
+            if len(df_tests) > 1:
+                plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее состояние')
+        
+        # 3. Фактическое состояние трубы
+        plt.scatter(P_fact, sigma_rasch_fact, c='g', s=100, marker='s', 
+                   edgecolors='k', linewidth=1.5, label='Фактическое состояние трубы')
+        
+        # Добавляем текстовую аннотацию для фактического состояния
+        plt.annotate(f'Факт: σ={sigma_rasch_fact:.1f} МПа\nP={P_fact:.3f}',
+                    xy=(P_fact, sigma_rasch_fact),
+                    xytext=(P_fact + 0.05, sigma_rasch_fact + 5),
+                    fontsize=9,
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7))
+        
+        # 4. Аппроксимация (если есть достаточно точек)
+        if len(df_tests) >= 2:
             X = worst_df["P"].values
             y = np.log10(worst_df["sigma_MPa"].values)
             A = np.vstack([X, np.ones(len(X))]).T
             a, b = np.linalg.lstsq(A, y, rcond=None)[0]
             R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
-            уравнение = f"log₁₀(σ) = {a:.3f} · P + {b:.3f}"
             
-            # --- 5. Проверка знака коэффициента a ---
-            st.info(f"Коэффициент аппроксимации: a = {a:.3f} (ожидается отрицательное значение)")
-            if a > 0:
-                st.warning("⚠️ Коэффициент a положительный! Это означает, что при увеличении P напряжение увеличивается, что противоречит физике.")
+            P_appr = (np.log10(sigma_vals) - b) / a
+            plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация (R²={R2:.3f})', linewidth=1.5)
+        
+        # Настройка осей и легенды
+        plt.xlim(P_dop.min() - 0.1, P_dop.max() + 0.1)
+        plt.ylim(20, 150)
+        
+        if selected_param == "Трунина":
+            xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
+        else:
+            xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.2f}) \\cdot 10^{{-3}}$"
+        
+        plt.xlabel(xlabel_text, fontsize=10)
+        plt.ylabel(r"$\sigma$, МПа", fontsize=11)
+        plt.title(f"График длительной прочности для стали {selected_steel}", fontsize=12, pad=15)
+        
+        plt.legend(
+            fontsize='small',
+            frameon=True,
+            fancybox=True,
+            shadow=True,
+            loc='upper right',
+            framealpha=0.9
+        )
+        plt.grid(True, alpha=0.3)
+        
+        # Отображаем график
+        st.pyplot(plt, use_container_width=False)
+        
+        # --- 4. Отображение результатов ---
+        st.header("Результаты")
+        
+        # Информация о фактическом состоянии
+        st.subheader("Фактическое состояние трубы")
+        fact_data = {
+            "Параметр": [
+                "Расчетное напряжение σ_расч",
+                "Параметр P для τ_э",
+                "Текущая минимальная толщина s_мин",
+                "Рабочая температура T_раб",
+                "Наработка τ_э",
+                "Коэффициент запаса k_зап",
+                "Марка стали",
+                "Параметр долговечности"
+            ],
+            "Значение": [
+                f"{sigma_rasch_fact:.1f} МПа",
+                f"{P_fact:.4f}",
+                f"{s_min:.3f} мм",
+                f"{T_rab_C:.1f} °C",
+                f"{tau_exp:,} ч",
+                f"{k_zapas:.1f}",
+                selected_steel,
+                selected_param
+            ]
+        }
+        fact_df = pd.DataFrame(fact_data)
+        st.table(fact_df)
+        
+        # Проверка положения фактической точки относительно кривой допускаемых напряжений
+        # Находим ближайшее значение на кривой допускаемых напряжений
+        idx = np.argmin(np.abs(P_dop - P_fact))
+        sigma_dop = sigma_vals[idx]
+        
+        st.subheader("Анализ положения относительно кривой допускаемых напряжений")
+        if sigma_rasch_fact < sigma_dop:
+            st.success(f"✅ Фактическое напряжение ({sigma_rasch_fact:.1f} МПа) **НИЖЕ** допускаемого ({sigma_dop:.1f} МПа) при P={P_fact:.3f}")
+            st.info("Труба находится в безопасной зоне относительно кривой допускаемых напряжений.")
+        else:
+            st.warning(f"⚠️ Фактическое напряжение ({sigma_rasch_fact:.1f} МПа) **ВЫШЕ** допускаемого ({sigma_dop:.1f} МПа) при P={P_fact:.3f}")
+            st.error("Внимание! Труба находится в опасной зоне. Необходимо уменьшить рабочее давление или температуру.")
+        
+        # --- 5. Расчет остаточного ресурса (если есть достаточно точек) ---
+        if len(df_tests) >= 2:
+            st.header("Расчет остаточного ресурса")
             
-            # --- 6. Скорость коррозии ---
+            # Скорость коррозии
             if s_max > s_nom:
                 v_corr = (s_max - s_min) / tau_exp
             else:
                 v_corr = (s_nom - s_min) / tau_exp
             
-            st.info(f"Скорость коррозии: {v_corr:.6f} мм/ч")
-            
-            # --- 7. Итерационный расчёт τ_прогн ---
-            T_rab = T_rab_C + 273.15
-            
+            # Итерационный расчёт τ_прогн
             def calculate_tau_r(tau_guess):
                 s_min2 = s_min - v_corr * tau_guess
                 if s_min2 <= 0:
-                    return np.inf
+                    return np.inf, 0, 0
                 sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
                 sigma_rasch = k_zapas * sigma_k2
                 P_rab = (np.log10(sigma_rasch) - b) / a
                 
-                # ВАЖНО: Используем обратную формулу в зависимости от выбранного параметра
                 if selected_param == "Трунина":
                     log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - C
                 else:
                     log_tau_r = P_rab / T_rab * 1000 - C
                 
                 tau_r = 10**log_tau_r
-                return tau_r, sigma_rasch, s_min2, P_rab, log_tau_r
+                return tau_r, sigma_rasch, s_min2
             
             tau_prognoz = 50000.0
             converged = False
             max_iter = 100
             tolerance = 200.0
             
-            # Таблица итераций для отладки
-            iteration_data = []
-            
             for iter_num in range(max_iter):
-                tau_r, sigma_rasch, s_min2, P_rab, log_tau_r = calculate_tau_r(tau_prognoz)
-                
-                iteration_data.append({
-                    "Итерация": iter_num + 1,
-                    "τ_прогн, ч": round(tau_prognoz, 0),
-                    "τ_р, ч": round(tau_r, 0),
-                    "Разница": round(tau_prognoz - tau_r, 0),
-                    "σ_расч, МПа": round(sigma_rasch, 1),
-                    "s_min2, мм": round(s_min2, 3),
-                    "P_раб": round(P_rab, 4)
-                })
+                tau_r, sigma_rasch, s_min2 = calculate_tau_r(tau_prognoz)
                 
                 if not np.isfinite(tau_r) or tau_r <= 0:
                     break
@@ -434,113 +521,57 @@ if st.button("Рассчитать остаточный ресурс"):
                 
                 tau_prognoz = tau_prognoz_new
             
-            # --- 8. Финальный расчет ---
-            tau_r_final, sigma_rasch_final, s_min2_final, P_rab_final, log_tau_r_final = calculate_tau_r(tau_prognoz)
+            # Финальный расчет
+            tau_r_final, sigma_rasch_final, s_min2_final = calculate_tau_r(tau_prognoz)
             delta_final = tau_prognoz - tau_r_final
-            
-            # --- 9. Отображение итераций ---
-            st.subheader("Процесс итерационного расчета")
-            if iteration_data:
-                iterations_df = pd.DataFrame(iteration_data)
-                st.dataframe(iterations_df)
-            
-            # --- 10. График ---
-            sigma_vals = np.linspace(20, 150, 300)
-            
-            # Выбор формулы допускаемых напряжений в зависимости от марки стали
-            if selected_steel == "12Х1МФ":
-                P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
-                steel_label = "12Х1МФ (допускаемое снижение\nдлительной прочности)"
-            elif selected_steel == "12Х18Н12Т":
-                P_dop = (30942 - 3762 * np.log10(sigma_vals) - 16.8 * sigma_vals) * 1e-3
-                steel_label = "12Х18Н12Т (допускаемое снижение\nдлительной прочности)"
-            
-            P_appr = (np.log10(sigma_vals) - b) / a
-
-            P_min = min(P_dop.min(), df_tests["P"].min(), P_appr.min())
-            P_max = max(P_dop.max(), df_tests["P"].max(), P_appr.max())
-
-            plt.figure(figsize=(fig_width_in, fig_height_in))
-            plt.plot(P_dop, sigma_vals, 'k-', label=steel_label)
-            plt.plot(P_appr, sigma_vals, 'r--', label=f'Аппроксимация\n(R² = {R2:.3f})')
-            plt.scatter(df_tests["P"], df_tests["sigma_MPa"], c='b', label=series_name)
-            plt.scatter(worst_df["P"], worst_df["sigma_MPa"], c='r', edgecolors='k', s=80, label='Наихудшее\nсостояние')
-            
-            # Отмечаем рабочую точку
-            plt.scatter(P_rab_final, sigma_rasch_final, c='g', s=100, marker='*', label='Рабочая точка')
-            
-            plt.xlim(P_min - 0.2, P_max + 0.2)
-            plt.ylim(20, 150)
-            
-            # ВАЖНО: Правильная подпись оси X в зависимости от выбранного параметра
-            if selected_param == "Трунина":
-                xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
-            else:
-                xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.2f}) \\cdot 10^{{-3}}$"
-            
-            plt.xlabel(xlabel_text)
-            plt.ylabel(r"$\sigma$, МПа")
-            plt.title(f"Марка стали: {selected_steel}", fontsize=10, loc='right')
-            plt.legend(fontsize='x-small', frameon=True, fancybox=True, shadow=False, loc='upper right')
-            plt.grid(True)
-            
-            # --- 11. Результаты ---
-            st.header("Результаты расчёта")
             
             if converged:
                 st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
                 
                 results_data = {
                     "Параметр": [
-                        "Марка стали",
-                        "Параметр долговечности",
-                        "Коэффициент C",
-                        "Остаточный ресурс",
-                        "Уравнение аппроксимации",
-                        "Коэффициент a (ожидается < 0)",
-                        "Коэффициент b",
-                        "R²",
-                        "Расчётное напряжение с запасом",
-                        "Мин. толщина после ресурса",
-                        "Время до разрушения по модели",
+                        "Остаточный ресурс τ_прогн",
+                        "Время до разрушения по модели τ_р",
                         "Разница (τ_прогн - τ_р)",
-                        "Рабочий параметр P_раб",
+                        "Мин. толщина после ресурса s_min2",
+                        "Расчетное напряжение после ресурса",
                         "Скорость коррозии",
-                        "Серия образцов"
+                        "Коэффициент аппроксимации a",
+                        "Коэффициент аппроксимации b",
+                        "R² аппроксимации"
                     ],
                     "Значение": [
-                        selected_steel,
-                        selected_param,
-                        f"{C:.3f}",
                         f"{tau_prognoz:,.0f} ч",
-                        уравнение,
-                        f"{a:.3f}",
-                        f"{b:.3f}",
-                        f"{R2:.4f}",
-                        f"{sigma_rasch_final:.1f} МПа",
-                        f"{s_min2_final:.3f} мм",
                         f"{tau_r_final:,.0f} ч",
                         f"{delta_final:.0f} ч",
-                        f"{P_rab_final:.4f}",
+                        f"{s_min2_final:.3f} мм",
+                        f"{sigma_rasch_final:.1f} МПа",
                         f"{v_corr:.6f} мм/ч",
-                        series_name
+                        f"{a:.3f}",
+                        f"{b:.3f}",
+                        f"{R2:.4f}"
                     ]
                 }
                 
                 results_df = pd.DataFrame(results_data)
                 st.table(results_df)
-                
             else:
-                st.error("❌ Не удалось достичь сходимости. Попробуйте другие параметры.")
-                st.info("""
-                Возможные причины:
-                1. Коэффициент аппроксимации a имеет неправильный знак
-                2. Данные испытаний противоречивы
-                3. Параметры трубы заданы нереалистично
-                """)
-
-            st.pyplot(plt, use_container_width=False)
-
+                st.warning("Не удалось достичь сходимости в расчете остаточного ресурса.")
+        else:
+            st.info("""
+            **Для расчета остаточного ресурса необходимо как минимум 2 точки испытаний.**
+            
+            Сейчас на графике отображены:
+            1. Кривая допускаемых напряжений для выбранной марки стали
+            2. Фактическое состояние трубы (зеленый квадрат)
+            3. Точки испытаний (если есть)
+            
+            Вы можете:
+            - Добавить больше точек испытаний
+            - Изменить параметры трубы
+            - Сравнить положение фактической точки относительно кривой допускаемых напряжений
+            """)
+            
     except Exception as e:
         st.error(f"Произошла ошибка: {str(e)[:500]}")
         import traceback
