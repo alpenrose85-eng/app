@@ -34,7 +34,7 @@ if uploaded_file is not None:
         st.session_state.widget_prefix = "loaded_" + str(hash(prefix_seed))[:12]
     except Exception as e:
         st.sidebar.error(f"❌ Ошибка при загрузке: {e}")
-        st.session_state.widget_prefix = "default"
+        st.session_state.widget_prefix = "default")
 else:
     pass
 
@@ -278,9 +278,9 @@ with col1:
             help=f"По умолчанию для всех марок стали: {default_C_value}"
         )
 with col2:
-    fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=17, value=15, step=1)
+    fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=20, value=17, step=1)
     fig_width_in = fig_width_cm / 2.54
-    fig_height_cm = st.slider("Высота графика (см)", min_value=8, max_value=12, value=10, step=1)
+    fig_height_cm = st.slider("Высота графика (см)", min_value=8, max_value=15, value=10, step=1)
     fig_height_in = fig_height_cm / 2.54
 
 # --- Кнопка сохранения ---
@@ -376,7 +376,7 @@ if st.button("Построить график и рассчитать"):
             P_dop = (30942 - 3762 * np.log10(sigma_vals) - 16.8 * sigma_vals) * 1e-3
             steel_label = f"12Х18Н12Т (допускаемое снижение длительной прочности)"
         
-        # Создаем график
+        # Создаем график с увеличенной шириной для легенды
         fig, ax = plt.subplots(figsize=(fig_width_in, fig_height_in))
         
         # 1. Кривая допускаемых напряжений
@@ -431,9 +431,15 @@ if st.button("Построить график и рассчитать"):
         ax.set_ylabel(r"$\sigma$, МПа", fontsize=11)
         ax.set_title(f"Длительная прочность стали {selected_steel}", fontsize=12, pad=15)
         
+        # Легенда справа от графика
         ax.legend(fontsize=9, frameon=True, fancybox=True, 
-                 shadow=True, loc='upper right', framealpha=0.9)
+                 shadow=True, framealpha=0.9, 
+                 bbox_to_anchor=(1.05, 1), loc='upper left')
+        
         ax.grid(True, alpha=0.3)
+        
+        # Увеличиваем правый отступ для легенды
+        plt.subplots_adjust(right=0.75)
         
         st.pyplot(fig, use_container_width=False)
         
