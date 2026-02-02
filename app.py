@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import json
 import io
 import hashlib
+from typing import Dict, List, Optional, Tuple
 
 st.set_page_config(page_title="Расчёт остаточного ресурса змеевиков", layout="wide")
 st.title("Определение остаточного ресурса змеевиков ВРЧ")
@@ -18,6 +19,8 @@ if 'steel_grade' not in st.session_state:
     st.session_state.steel_grade = "12Х1МФ"
 if 'selected_param' not in st.session_state:
     st.session_state.selected_param = "Трунина"
+if 'resource_calculations' not in st.session_state:
+    st.session_state.resource_calculations = []
 
 # --- Загрузка / сохранение проекта ---
 st.sidebar.header("📁 Сохранить / загрузить проект")
@@ -106,16 +109,16 @@ if project_data is not None:
     C_trunin_val = project_data.get("коэффициент_C_trunin", 24.88)
     C_larson_val = project_data.get("коэффициент_C_larson", 20.0)
     series_name = project_data.get("название_серии", "Образцы")
-    selected_approx_group = project_data.get("выбранная_группа_аппроксимации", 0)
     st.session_state.test_data_input = loaded_test_data.copy()
     st.session_state.steel_grade = selected_steel
     st.session_state.selected_param = selected_param
+    if 'resource_calculations' in project_data:
+        st.session_state.resource_calculations = project_data['resource_calculations']
 else:
     params = {}
     selected_param = "Трунина"
     selected_steel = st.session_state.steel_grade
     series_name = "Образцы"
-    selected_approx_group = 0
     if not st.session_state.test_data_input:
         st.session_state.test_data_input = [{
             "Образец": f"Обр.{i+1}", 
@@ -131,7 +134,7 @@ series_name = st.text_input("Введите название серии обра
 
 # --- Выбор марки стали ---
 st.header("1. Выберите марку стали")
-steel_options = ["12Х1МФ", "12Х18Н12Т"]
+steel_options = ["12Х1МФ", "12Х18Н12Т", "ДИ82"]
 selected_steel = st.selectbox(
     "Марка стали",
     options=steel_options,
@@ -150,18 +153,23 @@ selected_param = st.selectbox(
 st.session_state.selected_param = selected_param
 
 # --- Автоматическая установка коэффициентов в зависимости от марки стали ---
-def set_default_coefficients(steel_grade, parameter):
-    if steel_grade == "12Х1МФ":
-        if parameter == "Трунина":
-            return 24.88
-        else:
-            return 20.0
-    elif steel_grade == "12Х18Н12Т":
-        if parameter == "Трунина":
-            return 26.3
-        else:
-            return 20.0
-    return 24.88
+def set_default_coefficients(steel_grade: str, parameter: str) -> float:
+    """Устанавливает коэффициенты по умолчанию в зависимости от марки стали и параметра."""
+    coefficients = {
+        "12Х1МФ": {
+            "Трунина": 24.88,
+            "Ларсона-Миллера": 20.0
+        },
+        "12Х18Н12Т": {
+            "Трунина": 26.3,
+            "Ларсона-Миллера": 20.0
+        },
+        "ДИ82": {
+            "Трунина": 39.87,
+            "Ларсона-Миллера": 30.0
+        }
+    }
+    return coefficients.get(steel_grade, {}).get(parameter, 20.0)
 
 # Начальные значения коэффициентов по умолчанию
 if project_data is None:
@@ -213,7 +221,12 @@ if len(st.session_state.test_data_input) != num_tests:
 
 # --- Ввод данных испытаний с группами аппроксимации ---
 st.header("4. Введите данные испытаний")
-st.info("💡 **Группы аппроксимации:** Укажите номер группы (0 = только на графике, 1,2,3... = разные аппроксимации)")
+st.info("""
+💡 **Группы аппроксимации:**
+- **0** = только на графике (без аппроксимации)
+- **1, 2, 3...** = разные блоки точек для аппроксимации
+Для построения аппроксимации в группе должно быть минимум 2 точки
+""")
 
 if num_tests > 0:
     for i in range(num_tests):
@@ -269,8 +282,8 @@ else:
 
 df_tests = pd.DataFrame(st.session_state.test_data_input) if st.session_state.test_data_input else pd.DataFrame()
 
-# --- Ввод параметров трубы ---
-st.header("5. Введите параметры трубы")
+# --- Ввод общих параметров трубы для графика ---
+st.header("5. Введите общие параметры трубы для графика")
 col1, col2 = st.columns(2)
 with col1:
     s_nom_val = params.get("s_nom", 6.0)
@@ -299,7 +312,8 @@ with col2:
 
 # --- Настройка коэффициентов и графика ---
 st.header("6. Дополнительные настройки")
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
+
 with col1:
     if selected_param == "Трунина":
         default_C_value = set_default_coefficients(selected_steel, selected_param)
@@ -312,46 +326,142 @@ with col1:
             help=f"По умолчанию для {selected_steel}: {default_C_value}"
         )
     else:
-        default_C_value = 20.0
+        default_C_value = set_default_coefficients(selected_steel, selected_param)
         C = st.number_input(
             "Коэффициент C в параметре Ларсона-Миллера",
             value=float(default_C_value),
             min_value=0.0,
             max_value=50.0,
             format="%.3f",
-            help=f"По умолчанию для всех марок стали: {default_C_value}"
+            help=f"По умолчанию для {selected_steel}: {default_C_value}"
         )
-    
-    # Выбор группы аппроксимации для расчета
+
+with col2:
+    # Выбор групп для построения аппроксимации
     if len(df_tests) > 0:
         # Находим все уникальные группы (кроме 0)
         groups = sorted([g for g in df_tests["Группа_аппроксимации"].unique() if g > 0])
         if groups:
-            group_options = {0: "Только график (без расчета)"}
+            group_options = {}
             for g in groups:
-                # Подсчитываем количество точек в группе
                 count = len(df_tests[df_tests["Группа_аппроксимации"] == g])
-                group_options[g] = f"Группа {g} ({count} точек)"
+                if count >= 2:
+                    group_options[g] = f"Группа {g} ({count} точек, можно аппроксимировать)"
+                else:
+                    group_options[g] = f"Группа {g} ({count} точек, мало для аппроксимации)"
             
-            selected_approx_group = st.selectbox(
-                "Выберите группу для расчета ресурса:",
+            selected_approx_groups = st.multiselect(
+                "Выберите группы для построения аппроксимации:",
                 options=list(group_options.keys()),
                 format_func=lambda x: group_options[x],
-                index=0
+                default=[]
             )
         else:
-            st.info("Для расчета ресурса назначьте точкам группы аппроксимации (1, 2, 3...)")
-            selected_approx_group = 0
+            st.info("Назначьте точкам группы аппроксимации (1, 2, 3...)")
+            selected_approx_groups = []
     else:
-        selected_approx_group = 0
+        selected_approx_groups = []
 
-with col2:
+with col3:
     fig_width_cm = st.slider("Ширина графика (см)", min_value=12, max_value=20, value=17, step=1)
     fig_width_in = fig_width_cm / 2.54
     fig_height_cm = st.slider("Высота графика (см)", min_value=8, max_value=15, value=10, step=1)
     fig_height_in = fig_height_cm / 2.54
 
-# --- Кнопка сохранения ---
+# --- Управление несколькими расчетами остаточного ресурса ---
+st.header("7. Управление расчетами остаточного ресурса")
+
+# Кнопка для добавления нового расчета
+if st.button("➕ Добавить новый расчет остаточного ресурса"):
+    st.session_state.resource_calculations.append({
+        'id': len(st.session_state.resource_calculations) + 1,
+        'name': f'Расчет {len(st.session_state.resource_calculations) + 1}',
+        'params': {
+            's_nom': s_nom,
+            's_min': s_min,
+            's_max': s_max,
+            'tau_exp': tau_exp,
+            'd_max': d_max,
+            'T_rab_C': T_rab_C,
+            'p_MPa': p_MPa,
+            'k_zapas': k_zapas
+        },
+        'selected_group': 0,
+        'results': None
+    })
+
+# Отображение существующих расчетов
+for idx, calc in enumerate(st.session_state.resource_calculations):
+    with st.expander(f"📊 {calc['name']} (ID: {calc['id']})", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            calc['name'] = st.text_input(f"Название расчета", value=calc['name'], key=f"calc_name_{idx}")
+            
+            # Выбор группы для расчета
+            if len(df_tests) > 0 and selected_approx_groups:
+                calc['selected_group'] = st.selectbox(
+                    f"Выберите группу аппроксимации для расчета:",
+                    options=[0] + selected_approx_groups,
+                    format_func=lambda x: f"Только график" if x == 0 else f"Группа {x}",
+                    index=selected_approx_groups.index(calc['selected_group']) + 1 if calc['selected_group'] in selected_approx_groups else 0,
+                    key=f"calc_group_{idx}"
+                )
+            else:
+                calc['selected_group'] = 0
+                st.warning("Для расчета выберите группы аппроксимации в разделе 6")
+        
+        with col2:
+            # Параметры трубы для этого расчета
+            st.subheader("Параметры трубы")
+            calc['params']['s_nom'] = st.number_input(
+                "s_н, мм", value=float(calc['params']['s_nom']), 
+                min_value=0.1, max_value=1000.0, key=f"calc_s_nom_{idx}"
+            )
+            calc['params']['s_min'] = st.number_input(
+                "s_мин, мм", value=float(calc['params']['s_min']), 
+                min_value=0.1, max_value=calc['params']['s_nom'], key=f"calc_s_min_{idx}"
+            )
+            calc['params']['d_max'] = st.number_input(
+                "d_макс, мм", value=float(calc['params']['d_max']), 
+                min_value=0.1, max_value=1000.0, key=f"calc_d_max_{idx}"
+            )
+            calc['params']['T_rab_C'] = st.number_input(
+                "T_раб, °C", value=float(calc['params']['T_rab_C']), 
+                min_value=100.0, max_value=1000.0, key=f"calc_T_rab_C_{idx}"
+            )
+            calc['params']['p_MPa'] = st.number_input(
+                "p, МПа", value=float(calc['params']['p_MPa']), 
+                min_value=0.1, max_value=100.0, key=f"calc_p_MPa_{idx}"
+            )
+            calc['params']['k_zapas'] = st.number_input(
+                "k_зап", value=float(calc['params']['k_zapas']), 
+                min_value=1.0, max_value=5.0, key=f"calc_k_zapas_{idx}"
+            )
+        
+        # Кнопки управления
+        col_btn1, col_btn2, col_btn3 = st.columns(3)
+        with col_btn1:
+            if st.button(f"🔄 Рассчитать", key=f"calc_button_{idx}"):
+                # Флаг для расчета будет установлен позже
+                pass
+        with col_btn2:
+            if st.button(f"🗑️ Удалить", key=f"delete_calc_{idx}"):
+                st.session_state.resource_calculations.pop(idx)
+                st.rerun()
+        with col_btn3:
+            if st.button(f"📋 Скопировать параметры", key=f"copy_calc_{idx}"):
+                # Копирование текущих параметров в новый расчет
+                st.session_state.resource_calculations.append({
+                    'id': len(st.session_state.resource_calculations) + 1,
+                    'name': f'Копия {calc["name"]}',
+                    'params': calc['params'].copy(),
+                    'selected_group': calc['selected_group'],
+                    'results': None
+                })
+                st.rerun()
+
+# --- Кнопка сохранения проекта ---
 if st.sidebar.button("💾 Сохранить проект"):
     data_to_save = {
         "название_серии": series_name,
@@ -368,9 +478,10 @@ if st.sidebar.button("💾 Сохранить проект"):
             "k_zapas": k_zapas
         },
         "выбранный_параметр": selected_param,
-        "выбранная_группа_аппроксимации": selected_approx_group,
+        "выбранные_группы_аппроксимации": selected_approx_groups,
         "коэффициент_C_trunin": C if selected_param == "Трунина" else 24.88,
         "коэффициент_C_larson": C if selected_param == "Ларсона-Миллера" else 20.0,
+        "resource_calculations": st.session_state.resource_calculations
     }
     json_str = json.dumps(data_to_save, indent=2, ensure_ascii=False)
     st.sidebar.download_button(
@@ -387,7 +498,7 @@ if st.sidebar.button("📥 Скачать шаблон Excel"):
         'sigma_MPa': [120.0, 130.0, 140.0, 125.0, 135.0],
         'T_C': [600.0, 610.0, 620.0, 605.0, 615.0],
         'tau_h': [500.0, 450.0, 400.0, 480.0, 430.0],
-        'Группа_аппроксимации': [1, 1, 1, 2, 2]  # Пример группировки
+        'Группа_аппроксимации': [1, 1, 1, 2, 2]
     }
     template_df = pd.DataFrame(template_data)
     
@@ -402,10 +513,107 @@ if st.sidebar.button("📥 Скачать шаблон Excel"):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
-# --- Расчёт ---
-if st.button("Построить график и рассчитать"):
+# --- Функция для расчета остаточного ресурса ---
+def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str, C: float, 
+                                steel_grade: str, s_nom: float) -> Tuple[Optional[float], Dict]:
+    """Рассчитывает остаточный ресурс по заданным параметрам."""
+    
     try:
-        # --- 1. Расчет напряжений для фактического состояния ---
+        # Извлекаем параметры
+        s_min = params['s_min']
+        s_max = params['s_max']
+        tau_exp = params['tau_exp']
+        d_max = params['d_max']
+        T_rab_C = params['T_rab_C']
+        p_MPa = params['p_MPa']
+        k_zapas = params['k_zapas']
+        
+        T_rab = T_rab_C + 273.15
+        a = approx['a']
+        b = approx['b']
+        
+        # Скорость коррозии
+        if s_max > s_nom:
+            v_corr = (s_max - s_min) / tau_exp
+        else:
+            v_corr = (s_nom - s_min) / tau_exp
+        
+        # Итерационный расчет
+        tau_prognoz = 50000.0
+        iteration_data = []
+        
+        for iter_num in range(100):
+            # Будущая минимальная толщина
+            s_min2 = s_min - v_corr * tau_prognoz
+            if s_min2 <= 0:
+                return None, {"error": "Толщина стенки станет ≤ 0"}
+            
+            # Напряжение для будущего состояния
+            sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
+            sigma_rasch2 = k_zapas * sigma_k2
+            
+            # Параметр P из уравнения аппроксимации
+            P_rab = (np.log10(sigma_rasch2) - b) / a
+            
+            # Время до разрушения
+            if selected_param == "Трунина":
+                log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - C
+            else:
+                log_tau_r = P_rab / T_rab * 1000 - C
+            
+            tau_r = 10**log_tau_r
+            
+            iteration_data.append({
+                "Итерация": iter_num + 1,
+                "τ_прогн, ч": round(tau_prognoz, 0),
+                "τ_р, ч": round(tau_r, 0),
+                "Разница, ч": round(tau_prognoz - tau_r, 0),
+                "s_min2, мм": round(s_min2, 3),
+                "σ_расч2, МПа": round(sigma_rasch2, 1)
+            })
+            
+            if not np.isfinite(tau_r) or tau_r <= 0:
+                return None, {"error": "Некорректное время до разрушения"}
+            
+            delta = tau_prognoz - tau_r
+            if abs(delta) <= 200:
+                # Сходимость достигнута
+                return tau_prognoz, {
+                    "iterations": iteration_data,
+                    "final_tau_r": tau_r,
+                    "final_s_min2": s_min2,
+                    "final_sigma_rasch2": sigma_rasch2,
+                    "v_corr": v_corr,
+                    "delta": delta,
+                    "converged": True
+                }
+            
+            # Коррекция прогноза
+            correction = delta * 0.5
+            correction = np.clip(correction, -10000, 10000)
+            tau_prognoz = tau_prognoz - correction
+            
+            if tau_prognoz <= 0:
+                tau_prognoz = 1000
+        
+        # Не сошлось за 100 итераций
+        return tau_prognoz, {
+            "iterations": iteration_data,
+            "final_tau_r": tau_r,
+            "final_s_min2": s_min2,
+            "final_sigma_rasch2": sigma_rasch2,
+            "v_corr": v_corr,
+            "delta": delta,
+            "converged": False
+        }
+        
+    except Exception as e:
+        return None, {"error": str(e)}
+
+# --- Основной расчет и построение графика ---
+if st.button("🚀 Построить график и выполнить расчеты"):
+    try:
+        # --- 1. Расчет напряжений для фактического состояния (общий график) ---
         sigma_fact_graph = (p_MPa / 2) * (d_max / s_min + 1)
         sigma_rasch = k_zapas * sigma_fact_graph
         T_rab = T_rab_C + 273.15
@@ -424,18 +632,64 @@ if st.button("Построить график и рассчитать"):
             else:
                 df_tests["P"] = df_tests["T_K"] * (np.log10(df_tests["tau_h"]) + C) * 1e-3
         
-        # --- 3. Построение графика ---
+        # --- 3. Построение кривой допускаемых напряжений ---
         sigma_vals = np.linspace(20, 150, 300)
         
-        # Кривая допускаемых напряжений
         if selected_steel == "12Х1МФ":
             P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
             steel_label = f"12Х1МФ (допускаемое снижение длительной прочности)"
         elif selected_steel == "12Х18Н12Т":
             P_dop = (30942 - 3762 * np.log10(sigma_vals) - 16.8 * sigma_vals) * 1e-3
             steel_label = f"12Х18Н12Т (допускаемое снижение длительной прочности)"
+        elif selected_steel == "ДИ82":
+            P_dop = (40086 - 2400 * np.log10(sigma_vals) - 19.4 * sigma_vals) * 1e-3
+            steel_label = f"ДИ82 (допускаемое снижение длительной прочности)"
+        else:
+            P_dop = (24956 - 2400 * np.log10(sigma_vals) - 10.9 * sigma_vals) * 1e-3
+            steel_label = f"Допускаемое снижение длительной прочности"
         
-        # Создаем график
+        # --- 4. Аппроксимации для выбранных групп ---
+        approximations = {}  # Будем хранить параметры аппроксимаций
+        
+        if len(df_tests) > 0 and selected_approx_groups:
+            # Цвета для линий аппроксимации
+            line_colors = {
+                1: 'blue',
+                2: 'red',
+                3: 'green',
+                4: 'purple',
+                5: 'orange',
+                6: 'brown',
+                7: 'pink',
+                8: 'cyan',
+                9: 'magenta',
+                10: 'olive'
+            }
+            
+            for group_num in selected_approx_groups:
+                group_data = df_tests[df_tests["Группа_аппроксимации"] == group_num]
+                
+                if len(group_data) >= 2:
+                    X = group_data["P"].values
+                    y = np.log10(group_data["sigma_MPa"].values)
+                    A = np.vstack([X, np.ones(len(X))]).T
+                    try:
+                        a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+                        R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
+                        
+                        approximations[group_num] = {
+                            'a': a,
+                            'b': b,
+                            'R2': R2,
+                            'count': len(group_data),
+                            'color': line_colors.get(group_num, 'gray')
+                        }
+                    except Exception as e:
+                        st.warning(f"Не удалось построить аппроксимацию для группы {group_num}: {str(e)}")
+                else:
+                    st.warning(f"Для группы {group_num} недостаточно точек для аппроксимации (нужно минимум 2)")
+        
+        # --- 5. Построение графика ---
         fig, ax = plt.subplots(figsize=(fig_width_in, fig_height_in))
         
         # 1. Кривая допускаемых напряжений
@@ -443,7 +697,7 @@ if st.button("Построить график и рассчитать"):
         
         # 2. Точки испытаний (если есть)
         if len(df_tests) > 0:
-            # Определяем цвета для разных групп
+            # Цвета для разных групп точек
             group_colors = {
                 0: 'gray',      # Точки без аппроксимации
                 1: 'blue',      # Группа 1
@@ -462,11 +716,29 @@ if st.button("Построить график и рассчитать"):
             for group_num in sorted(df_tests["Группа_аппроксимации"].unique()):
                 group_data = df_tests[df_tests["Группа_аппроксимации"] == group_num]
                 color = group_colors.get(group_num, 'gray')
-                label = f'Группа {group_num} ({len(group_data)} точек)' if group_num > 0 else f'Только на графике ({len(group_data)} точек)'
+                
+                if group_num == 0:
+                    label = f'Точки без аппроксимации ({len(group_data)} шт.)'
+                elif group_num in selected_approx_groups:
+                    if group_num in approximations:
+                        label = f'Группа {group_num} ({len(group_data)} точек, R²={approximations[group_num]["R2"]:.3f})'
+                    else:
+                        label = f'Группа {group_num} ({len(group_data)} точек)'
+                else:
+                    label = f'Группа {group_num} ({len(group_data)} точек, аппроксимация не строится)'
+                
                 ax.scatter(group_data["P"], group_data["sigma_MPa"], 
                           c=color, s=50, label=label, alpha=0.7)
         
-        # 3. Фактическое состояние трубы
+        # 3. Аппроксимационные линии для выбранных групп
+        for group_num, approx_data in approximations.items():
+            if group_num in selected_approx_groups:
+                # Строим линию аппроксимации
+                P_appr = (np.log10(sigma_vals) - approx_data['b']) / approx_data['a']
+                ax.plot(P_appr, sigma_vals, color=approx_data['color'], linestyle='--', 
+                       linewidth=1.5, label=f'Аппроксимация Гр.{group_num} (R²={approx_data["R2"]:.3f})')
+        
+        # 4. Фактическое состояние трубы (общий график)
         ax.scatter(P_fact, sigma_fact_graph, c='green', s=120, marker='o',
                   edgecolors='black', linewidth=1.5, 
                   label=f'Факт: σ={sigma_fact_graph:.1f} МПа (без запаса)')
@@ -477,56 +749,6 @@ if st.button("Построить график и рассчитать"):
         
         ax.plot([P_fact, P_fact], [sigma_fact_graph, sigma_rasch], 
                'k--', linewidth=1, alpha=0.5)
-        
-        # 4. Аппроксимации для каждой группы (кроме 0)
-        approximations = {}  # Будем хранить параметры аппроксимаций
-        
-        if len(df_tests) > 0:
-            unique_groups = [g for g in sorted(df_tests["Группа_аппроксимации"].unique()) if g > 0]
-            
-            # Цвета для линий аппроксимации
-            line_colors = {
-                1: 'blue',
-                2: 'red',
-                3: 'green',
-                4: 'purple',
-                5: 'orange',
-                6: 'brown',
-                7: 'pink',
-                8: 'cyan',
-                9: 'magenta',
-                10: 'olive'
-            }
-            
-            for group_num in unique_groups:
-                group_data = df_tests[df_tests["Группа_аппроксимации"] == group_num]
-                
-                if len(group_data) >= 2:  # Нужно минимум 2 точки для аппроксимации
-                    X = group_data["P"].values
-                    y = np.log10(group_data["sigma_MPa"].values)
-                    A = np.vstack([X, np.ones(len(X))]).T
-                    try:
-                        a, b = np.linalg.lstsq(A, y, rcond=None)[0]
-                        R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
-                        
-                        # Сохраняем параметры аппроксимации
-                        approximations[group_num] = {
-                            'a': a,
-                            'b': b,
-                            'R2': R2,
-                            'count': len(group_data)
-                        }
-                        
-                        # Строим линию аппроксимации
-                        P_appr = (np.log10(sigma_vals) - b) / a
-                        color = line_colors.get(group_num, 'gray')
-                        ax.plot(P_appr, sigma_vals, color=color, linestyle='--', 
-                               linewidth=1.5, label=f'Аппроксимация Гр.{group_num} (R²={R2:.3f})')
-                        
-                    except Exception as e:
-                        st.warning(f"Не удалось построить аппроксимацию для группы {group_num}: {str(e)}")
-                else:
-                    st.warning(f"Для группы {group_num} недостаточно точек для аппроксимации (нужно минимум 2)")
         
         # Настройка графика
         ax.set_xlim(P_dop.min() - 0.1, P_dop.max() + 0.1)
@@ -539,7 +761,7 @@ if st.button("Построить график и рассчитать"):
         
         ax.set_xlabel(xlabel_text, fontsize=10)
         ax.set_ylabel(r"$\sigma$, МПа", fontsize=11)
-        ax.set_title(f"Длительная прочность стали {selected_steel}", fontsize=12, pad=15)
+        ax.set_title(f"Длительная прочность стали {selected_steel} - {series_name}", fontsize=12, pad=15)
         
         # Легенда справа от графика
         ax.legend(fontsize=8, frameon=True, fancybox=True, 
@@ -551,8 +773,8 @@ if st.button("Построить график и рассчитать"):
         
         st.pyplot(fig, use_container_width=False)
         
-        # --- 4. Результаты расчетов ---
-        st.header("Результаты расчетов")
+        # --- 6. Результаты расчетов для общего графика ---
+        st.header("Результаты расчетов (общий график)")
         
         # Находим допускаемое напряжение для P_fact
         idx = np.argmin(np.abs(P_dop - P_fact))
@@ -581,7 +803,7 @@ if st.button("Построить график и рассчитать"):
                 "Марка стали",
                 "Параметр долговечности",
                 "Коэффициент C",
-                "Выбранная группа аппроксимации"
+                "Количество групп аппроксимации"
             ],
             "Значение": [
                 f"{p_MPa:.2f} МПа",
@@ -600,173 +822,95 @@ if st.button("Построить график и рассчитать"):
                 selected_steel,
                 selected_param,
                 f"{C:.2f}",
-                f"{selected_approx_group}" if selected_approx_group > 0 else "Только график"
+                f"{len(selected_approx_groups)}" if selected_approx_groups else "0"
             ]
         }
         
         results_df = pd.DataFrame(results_data)
         st.table(results_df)
         
-        # Анализ безопасности
-        st.subheader("Анализ безопасности")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**По фактическому напряжению (без запаса):**")
-            if margin_fact > 0:
-                st.success(f"✅ Безопасно")
-                st.write(f"Запас: {margin_fact:.1f}%")
-                st.write(f"σ_факт ({sigma_fact_graph:.1f} МПа) < σ_доп ({sigma_dop:.1f} МПа)")
-            else:
-                st.error(f"⚠️ Опасно!")
-                st.write(f"Превышение: {abs(margin_fact):.1f}%")
-                st.write(f"σ_факт ({sigma_fact_graph:.1f} МПа) > σ_доп ({sigma_dop:.1f} МПа)")
-        
-        with col2:
-            st.write(f"**По расчетному напряжению (с запасом k={k_zapas}):**")
-            if margin_rasch > 0:
-                st.success(f"✅ Безопасно")
-                st.write(f"Запас: {margin_rasch:.1f}%")
-                st.write(f"σ_расч ({sigma_rasch:.1f} МПа) < σ_доп ({sigma_dop:.1f} МПа)")
-            else:
-                st.error(f"⚠️ Опасно!")
-                st.write(f"Превышение: {abs(margin_rasch):.1f}%")
-                st.write(f"σ_расч ({sigma_rasch:.1f} МПа) > σ_доп ({sigma_dop:.1f} МПа)")
-        
-        # --- 5. Расчет остаточного ресурса (если выбрана группа) ---
-        if selected_approx_group > 0 and selected_approx_group in approximations:
-            st.header(f"Расчет остаточного ресурса по группе {selected_approx_group}")
+        # --- 7. Расчеты остаточного ресурса для каждого индивидуального расчета ---
+        if st.session_state.resource_calculations and approximations:
+            st.header("Результаты расчетов остаточного ресурса")
             
-            # Получаем параметры выбранной аппроксимации
-            approx = approximations[selected_approx_group]
-            a = approx['a']
-            b = approx['b']
-            R2 = approx['R2']
-            
-            # Уравнение аппроксимации
-            st.info(f"**Уравнение аппроксимации:** log₁₀(σ) = {a:.4f}·P + {b:.4f} (R² = {R2:.4f})")
-            
-            # Скорость коррозии
-            if s_max > s_nom:
-                v_corr = (s_max - s_min) / tau_exp
-            else:
-                v_corr = (s_nom - s_min) / tau_exp
-            
-            # Итерационный расчет
-            def calculate_tau_r(tau_guess):
-                s_min2 = s_min - v_corr * tau_guess
-                if s_min2 <= 0:
-                    return np.inf, 0, 0
-                
-                # Напряжение для будущего состояния
-                sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
-                sigma_rasch2 = k_zapas * sigma_k2
-                P_rab = (np.log10(sigma_rasch2) - b) / a
-                
-                if selected_param == "Трунина":
-                    log_tau_r = P_rab / T_rab * 1000 + 2 * np.log10(T_rab) - C
+            for idx, calc in enumerate(st.session_state.resource_calculations):
+                if calc['selected_group'] > 0 and calc['selected_group'] in approximations:
+                    approx = approximations[calc['selected_group']]
+                    
+                    st.subheader(f"{calc['name']} (Группа аппроксимации: {calc['selected_group']})")
+                    
+                    # Выполняем расчет
+                    tau_prognoz, calc_results = calculate_residual_resource(
+                        calc['params'], approx, selected_param, C, selected_steel, calc['params']['s_nom']
+                    )
+                    
+                    if tau_prognoz is not None:
+                        if calc_results.get('converged', False):
+                            st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч** ({tau_prognoz/8760:.1f} лет)")
+                            
+                            # Таблица результатов
+                            forecast_data = {
+                                "Параметр": [
+                                    "Остаточный ресурс τ_прогн",
+                                    "Время до разрушения τ_р",
+                                    "Разница (τ_прогн - τ_р)",
+                                    "Минимальная толщина после ресурса",
+                                    "Напряжение после ресурса (с запасом)",
+                                    "Скорость коррозии",
+                                    "Коэффициент аппроксимации a",
+                                    "Коэффициент аппроксимации b",
+                                    "R² аппроксимации",
+                                    "Количество точек в группе",
+                                    "Коэффициент запаса",
+                                    "Рабочая температура",
+                                    "Давление"
+                                ],
+                                "Значение": [
+                                    f"{tau_prognoz:,.0f} ч",
+                                    f"{calc_results['final_tau_r']:,.0f} ч",
+                                    f"{calc_results['delta']:.0f} ч",
+                                    f"{calc_results['final_s_min2']:.3f} мм",
+                                    f"{calc_results['final_sigma_rasch2']:.1f} МПа",
+                                    f"{calc_results['v_corr']:.6f} мм/ч",
+                                    f"{approx['a']:.4f}",
+                                    f"{approx['b']:.4f}",
+                                    f"{approx['R2']:.4f}",
+                                    f"{approx['count']}",
+                                    f"{calc['params']['k_zapas']:.1f}",
+                                    f"{calc['params']['T_rab_C']:.1f} °C",
+                                    f"{calc['params']['p_MPa']:.2f} МПа"
+                                ]
+                            }
+                            
+                            forecast_df = pd.DataFrame(forecast_data)
+                            st.table(forecast_df)
+                            
+                            # Итерации (если нужно)
+                            if st.checkbox(f"Показать процесс итераций для {calc['name']}", key=f"show_iters_{idx}"):
+                                st.table(pd.DataFrame(calc_results['iterations']))
+                        else:
+                            st.warning(f"⚠️ Не удалось достичь полной сходимости. Последнее значение: {tau_prognoz:,.0f} ч")
+                            st.info(f"Разница между прогнозом и временем до разрушения: {calc_results['delta']:.0f} ч")
+                            
+                            if st.checkbox(f"Показать процесс итераций для {calc['name']}", key=f"show_iters_{idx}"):
+                                st.table(pd.DataFrame(calc_results['iterations']))
+                    else:
+                        st.error(f"❌ Ошибка в расчете: {calc_results.get('error', 'Неизвестная ошибка')}")
+                elif calc['selected_group'] == 0:
+                    st.info(f"Для расчета {calc['name']} не выбрана группа аппроксимации")
                 else:
-                    log_tau_r = P_rab / T_rab * 1000 - C
-                
-                tau_r = 10**log_tau_r
-                return tau_r, sigma_rasch2, s_min2
-            
-            tau_prognoz = 50000.0
-            converged = False
-            iteration_data = []
-            
-            for iter_num in range(100):
-                tau_r, sigma_rasch2, s_min2 = calculate_tau_r(tau_prognoz)
-                
-                iteration_data.append({
-                    "Итерация": iter_num + 1,
-                    "τ_прогн, ч": round(tau_prognoz, 0),
-                    "τ_р, ч": round(tau_r, 0),
-                    "Разница, ч": round(tau_prognoz - tau_r, 0),
-                    "s_min2, мм": round(s_min2, 3)
-                })
-                
-                if not np.isfinite(tau_r) or tau_r <= 0:
-                    break
-                
-                delta = tau_prognoz - tau_r
-                if abs(delta) <= 200:
-                    converged = True
-                    break
-                
-                correction = delta * 0.5
-                correction = np.clip(correction, -10000, 10000)
-                tau_prognoz = tau_prognoz - correction
-                
-                if tau_prognoz <= 0:
-                    tau_prognoz = 1000
-            
-            # Финальный расчет
-            tau_r_final, sigma_rasch_final, s_min2_final = calculate_tau_r(tau_prognoz)
-            delta_final = tau_prognoz - tau_r_final
-            
-            if converged:
-                st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч**")
-                
-                # Таблица итераций
-                if len(iteration_data) > 0:
-                    with st.expander("Показать процесс итераций"):
-                        st.table(pd.DataFrame(iteration_data))
-                
-                # Результаты прогноза
-                forecast_data = {
-                    "Параметр": [
-                        "Остаточный ресурс τ_прогн",
-                        "Время до разрушения τ_р",
-                        "Разница (τ_прогн - τ_р)",
-                        "Минимальная толщина после ресурса",
-                        "Напряжение после ресурса (с запасом)",
-                        "Скорость коррозии",
-                        "Коэффициент аппроксимации a",
-                        "Коэффициент аппроксимации b",
-                        "R² аппроксимации",
-                        "Количество точек в группе"
-                    ],
-                    "Значение": [
-                        f"{tau_prognoz:,.0f} ч",
-                        f"{tau_r_final:,.0f} ч",
-                        f"{delta_final:.0f} ч",
-                        f"{s_min2_final:.3f} мм",
-                        f"{sigma_rasch_final:.1f} МПа",
-                        f"{v_corr:.6f} мм/ч",
-                        f"{a:.4f}",
-                        f"{b:.4f}",
-                        f"{R2:.4f}",
-                        f"{approx['count']}"
-                    ]
-                }
-                
-                forecast_df = pd.DataFrame(forecast_data)
-                st.table(forecast_df)
-            else:
-                st.warning("Не удалось достичь сходимости в расчете остаточного ресурса.")
-                if len(iteration_data) > 0:
-                    with st.expander("Показать процесс итераций"):
-                        st.table(pd.DataFrame(iteration_data))
-        elif selected_approx_group > 0 and selected_approx_group not in approximations:
-            st.warning(f"Для выбранной группы {selected_approx_group} не удалось построить аппроксимацию.")
-            if selected_approx_group in [g for g in sorted(df_tests["Группа_аппроксимации"].unique()) if g > 0]:
-                group_data = df_tests[df_tests["Группа_аппроксимации"] == selected_approx_group]
-                st.info(f"В группе {selected_approx_group} находится {len(group_data)} точек. Для аппроксимации нужно минимум 2 точки.")
+                    st.warning(f"Для расчета {calc['name']} выбранная группа {calc['selected_group']} не имеет аппроксимации")
         else:
-            st.info("""
-            **Для расчета остаточного ресурса:**
-            1. Назначьте точкам номера групп аппроксимации (1, 2, 3...)
-            2. Выберите группу для расчета в разделе "Дополнительные настройки"
-            3. В группе должно быть минимум 2 точки для построения аппроксимации
-            
-            **Текущий график показывает:**
-            1. Кривую допускаемых напряжений для выбранной марки стали
-            2. Фактическое напряжение в трубе (зеленый круг)
-            3. Расчетное напряжение с коэффициентом запаса (красный квадрат)
-            4. Точки испытаний с разными цветами по группам
-            5. Линии аппроксимации для групп с 2+ точками
-            """)
+            if not approximations:
+                st.info("""
+                **Для расчета остаточного ресурса:**
+                1. Назначьте точкам номера групп аппроксимации (1, 2, 3...)
+                2. Выберите группы для построения аппроксимации в разделе "Дополнительные настройки"
+                3. В группе должно быть минимум 2 точки для построения аппроксимации
+                4. Добавьте расчеты остаточного ресурса в разделе 7
+                """)
+            elif not st.session_state.resource_calculations:
+                st.info("Добавьте расчеты остаточного ресурса в разделе 7 для получения результатов")
             
     except Exception as e:
         st.error(f"Ошибка: {str(e)[:200]}")
