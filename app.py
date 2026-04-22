@@ -5,11 +5,16 @@ import matplotlib.pyplot as plt
 import json
 import io
 import hashlib
-from docx import Document
-from docx.enum.table import WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt
 from typing import Dict, List, Optional, Tuple
+
+try:
+    from docx import Document
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt
+    DOCX_AVAILABLE = True
+except ModuleNotFoundError:
+    DOCX_AVAILABLE = False
 
 st.set_page_config(page_title="Расчёт остаточного ресурса змеевиков", layout="wide")
 st.title("Определение остаточного ресурса змеевиков ВРЧ")
@@ -184,6 +189,9 @@ def format_approximation_equation(a: float, b: float, selected_param: str) -> st
 
 def create_word_report(series_name: str, df_tests: pd.DataFrame, selected_param: str, c_value: float) -> io.BytesIO:
     """Создает Word-отчет по испытаниям."""
+    if not DOCX_AVAILABLE:
+        raise ModuleNotFoundError("python-docx не установлен")
+
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = "Times New Roman"
@@ -573,18 +581,21 @@ if st.sidebar.button("💾 Сохранить проект"):
 
 # --- Скачать Word-отчет ---
 if len(st.session_state.test_data_input) > 0:
-    try:
-        df_word_report = pd.DataFrame(st.session_state.test_data_input)
-        c_for_report = C_trunin_val if selected_param == "Трунина" else C_larson_val
-        word_report = create_word_report(series_name, df_word_report, selected_param, c_for_report)
-        st.sidebar.download_button(
-            label="📄 Скачать отчет Word",
-            data=word_report,
-            file_name="otchet_dlitelnoi_prochnosti.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-    except Exception as e:
-        st.sidebar.warning(f"Не удалось сформировать Word-отчет: {e}")
+    if DOCX_AVAILABLE:
+        try:
+            df_word_report = pd.DataFrame(st.session_state.test_data_input)
+            c_for_report = C_trunin_val if selected_param == "Трунина" else C_larson_val
+            word_report = create_word_report(series_name, df_word_report, selected_param, c_for_report)
+            st.sidebar.download_button(
+                label="📄 Скачать отчет Word",
+                data=word_report,
+                file_name="otchet_dlitelnoi_prochnosti.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+        except Exception as e:
+            st.sidebar.warning(f"Не удалось сформировать Word-отчет: {e}")
+    else:
+        st.sidebar.info("Word-отчет недоступен: в окружении не установлен пакет python-docx")
 
 # --- Шаблон Excel для скачивания ---
 if st.sidebar.button("📥 Скачать шаблон Excel"):
