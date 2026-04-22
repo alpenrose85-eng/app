@@ -218,11 +218,11 @@ def create_word_report(series_name: str, df_tests: pd.DataFrame, selected_param:
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
 
     headers = [
-        "Название образца",
+        "Образец",
         "Напряжение, МПа",
         "Температура, °C",
         "Время, ч",
-        "Расчетный параметр Трунина",
+        "РТр",
     ]
 
     for i, header in enumerate(headers):
@@ -247,9 +247,9 @@ def create_word_report(series_name: str, df_tests: pd.DataFrame, selected_param:
 
         values = [
             str(row["Образец"]),
-            f"{float(row['sigma_MPa']):.2f}".replace('.', ','),
-            f"{float(row['T_C']):.1f}".replace('.', ','),
-            f"{float(row['tau_h']):.1f}".replace('.', ','),
+            f"{round(float(row['sigma_MPa']))}".replace('.', ','),
+            f"{round(float(row['T_C']))}".replace('.', ','),
+            f"{round(float(row['tau_h']))}".replace('.', ','),
             f"{p_value:.2f}".replace('.', ','),
         ]
         cells = table.add_row().cells
