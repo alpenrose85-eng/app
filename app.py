@@ -11,6 +11,8 @@ try:
     from docx import Document
     from docx.enum.table import WD_TABLE_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml import parse_xml
+    from docx.oxml.ns import nsdecls
     from docx.shared import Pt
     DOCX_AVAILABLE = True
 except ModuleNotFoundError:
@@ -224,7 +226,11 @@ def create_word_report(series_name: str, df_tests: pd.DataFrame, selected_param:
     ]
 
     for i, header in enumerate(headers):
-        p = table.rows[0].cells[i].paragraphs[0]
+        cell = table.rows[0].cells[i]
+        cell._tc.get_or_add_tcPr().append(
+            parse_xml(r'<w:shd {} w:fill="F2F2F2"/>'.format(nsdecls('w')))
+        )
+        p = cell.paragraphs[0]
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
         rr = p.add_run(header)
         rr.bold = True
@@ -244,7 +250,7 @@ def create_word_report(series_name: str, df_tests: pd.DataFrame, selected_param:
             f"{float(row['sigma_MPa']):.2f}".replace('.', ','),
             f"{float(row['T_C']):.1f}".replace('.', ','),
             f"{float(row['tau_h']):.1f}".replace('.', ','),
-            f"{p_value:.4f}".replace('.', ','),
+            f"{p_value:.2f}".replace('.', ','),
         ]
         cells = table.add_row().cells
         for i, value in enumerate(values):
