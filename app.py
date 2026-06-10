@@ -189,6 +189,99 @@ def format_approximation_equation(a: float, b: float, selected_param: str) -> st
     return f"lg(σ) = {a:.4f} · P {sign} {abs(b):.4f}"
 
 
+def format_word_table_number(value: float) -> str:
+    """Форматирует число для таблицы Word без лишних нулей."""
+    numeric_value = float(value)
+    if numeric_value.is_integer():
+        return str(int(numeric_value))
+    return f"{numeric_value:.2f}".rstrip("0").rstrip(".").replace('.', ',')
+
+
+def build_test_results_table(df_tests: pd.DataFrame) -> pd.DataFrame:
+    """Формирует таблицу режимов и результатов испытаний из введенных данных."""
+    if df_tests.empty:
+        return pd.DataFrame(columns=[
+            "Образец",
+            "Напряжение, σ, МПа",
+            "Температура, °C",
+            "Длительность испытания, ч"
+        ])
+
+    table_df = df_tests.copy()
+    table_df = table_df.rename(columns={
+        "sigma_MPa": "Напряжение, σ, МПа",
+        "T_C": "Температура, °C",
+        "tau_h": "Длительность испытания, ч"
+    })
+
+    desired_columns = [
+        "Образец",
+        "Напряжение, σ, МПа",
+        "Температура, °C",
+        "Длительность испытания, ч"
+    ]
+    return table_df[desired_columns]
+
+
+def create_word_test_table(series_name: str, df_tests: pd.DataFrame) -> io.BytesIO:
+    """Создает Word-файл с таблицей режимов и результатов испытаний."""
+    if not DOCX_AVAILABLE:
+        raise ModuleNotFoundError("python-docx не установлен")
+
+    table_df = build_test_results_table(df_tests)
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Times New Roman"
+    style.font.size = Pt(14)
+
+    title = doc.add_paragraph()
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = title.add_run("Таблица 1 — Режимы и результаты испытания образцов на длительную прочность")
+    title_run.font.name = "Times New Roman"
+    title_run.font.size = Pt(14)
+
+    if series_name.strip():
+        series_paragraph = doc.add_paragraph()
+        series_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        series_run = series_paragraph.add_run(f"Серия образцов: {series_name}")
+        series_run.font.name = "Times New Roman"
+        series_run.font.size = Pt(14)
+
+    doc.add_paragraph("")
+    table = doc.add_table(rows=1, cols=len(table_df.columns))
+    table.style = "Table Grid"
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    for i, header in enumerate(table_df.columns):
+        cell = table.rows[0].cells[i]
+        p = cell.paragraphs[0]
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = p.add_run(header)
+        run.bold = True
+        run.font.name = "Times New Roman"
+        run.font.size = Pt(14)
+
+    for _, row in table_df.iterrows():
+        cells = table.add_row().cells
+        values = [
+            str(row["Образец"]),
+            format_word_table_number(row["Напряжение, σ, МПа"]),
+            format_word_table_number(row["Температура, °C"]),
+            format_word_table_number(row["Длительность испытания, ч"]),
+        ]
+        for i, value in enumerate(values):
+            p = cells[i].paragraphs[0]
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = p.add_run(value)
+            run.font.name = "Times New Roman"
+            run.font.size = Pt(14)
+
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output
+
+
 def create_word_report(series_name: str, df_tests: pd.DataFrame, selected_param: str, c_value: float) -> io.BytesIO:
     """Создает Word-отчет по испытаниям."""
     if not DOCX_AVAILABLE:
@@ -375,6 +468,10 @@ else:
     st.info("Нет данных испытаний. График будет построен только с кривой допускаемых напряжений.")
 
 df_tests = pd.DataFrame(st.session_state.test_data_input) if st.session_state.test_data_input else pd.DataFrame()
+
+if not df_tests.empty:
+    st.header("4.1 Таблица режимов и результатов испытаний")
+    st.table(build_test_results_table(df_tests))
 
 # --- Ввод общих параметров трубы для графика ---
 st.header("5. Введите общие параметры трубы для графика")
@@ -589,6 +686,15 @@ if st.sidebar.button("💾 Сохранить проект"):
 if len(st.session_state.test_data_input) > 0:
     if DOCX_AVAILABLE:
         try:
+            df_word_table = pd.DataFrame(st.session_state.test_data_input)
+            word_table = create_word_test_table(series_name, df_word_table)
+            st.sidebar.download_button(
+                label="📄 Скачать таблицу Word",
+                data=word_table,
+                file_name="tablitsa_ispytanii_dlitelnoi_prochnosti.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+
             df_word_report = pd.DataFrame(st.session_state.test_data_input)
             c_for_report = C_trunin_val if selected_param == "Трунина" else C_larson_val
             word_report = create_word_report(series_name, df_word_report, selected_param, c_for_report)
