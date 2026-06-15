@@ -196,10 +196,24 @@ def format_approximation_equation(a: float, b: float, selected_param: str) -> st
     return f"lg(σ) = {a:.4f} · P {sign} {abs(b):.4f}"
 
 
-def format_reduced_equation(a: float, b: float, k_zapas: float) -> str:
-    """Возвращает сниженное на коэффициент запаса уравнение регрессии."""
+def build_regression(P_values: np.ndarray, sigma_values: np.ndarray) -> Tuple[float, float, float]:
+    """Строит линейную регрессию lg(σ) = a·P + b и возвращает a, b, R²."""
+    X = np.asarray(P_values, dtype=float)
+    sigma = np.asarray(sigma_values, dtype=float)
+    y = np.log10(sigma)
+    A = np.vstack([X, np.ones(len(X))]).T
+    a, b = np.linalg.lstsq(A, y, rcond=None)[0]
+    y_pred = a * X + b
+    ss_tot = np.sum((y - np.mean(y)) ** 2)
+    ss_res = np.sum((y - y_pred) ** 2)
+    R2 = 1 - ss_res / ss_tot if ss_tot != 0 else 1.0
+    return float(a), float(b), float(R2)
+
+
+def format_reduced_equation(a: float, b: float) -> str:
+    """Возвращает уравнение регрессии для напряжений, сниженных на коэффициент запаса."""
     sign = "+" if b >= 0 else "-"
-    return f"lg(σ/{k_zapas:.2f}) = {a:.4f} · P {sign} {abs(b):.4f}"
+    return f"lg(σ) = {a:.4f} · P {sign} {abs(b):.4f}"
 
 
 def format_word_table_number(value: float) -> str:
@@ -800,8 +814,9 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
         k_zapas = params['k_zapas']
         
         T_rab = T_rab_C + 273.15
-        a = approx['a']
-        b = approx['b']
+        reduced_a, reduced_b, reduced_R2 = build_regression(
+            approx['P_values'], approx['sigma_values'] / k_zapas
+        )
         
         # Скорость коррозии
         if s_max > s_nom:
@@ -812,7 +827,6 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
         # Итерационный расчет
         tau_prognoz = 50000.0
         iteration_data = []
-        lg_k_zapas = np.log10(k_zapas)
         
         for iter_num in range(100):
             # Будущая минимальная толщина
@@ -823,8 +837,8 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
             # Фактическое напряжение для будущего состояния
             sigma_fact2 = (p_MPa / 2) * (d_max / s_min2 + 1)
             
-            # Параметр P из уравнения аппроксимации, сниженного на коэффициент запаса
-            P_rab = (np.log10(sigma_fact2) - b - lg_k_zapas) / a
+            # Параметр P из новой регрессии, построенной по напряжениям, сниженным на коэффициент запаса
+            P_rab = (np.log10(sigma_fact2) - reduced_b) / reduced_a
             
             # Время до разрушения
             if selected_param == "Трунина":
@@ -856,6 +870,9 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
                     "final_sigma_fact2": sigma_fact2,
                     "v_corr": v_corr,
                     "delta": delta,
+                    "reduced_a": reduced_a,
+                    "reduced_b": reduced_b,
+                    "reduced_R2": reduced_R2,
                     "converged": True
                 }
             
@@ -875,6 +892,9 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
             "final_sigma_fact2": sigma_fact2,
             "v_corr": v_corr,
             "delta": delta,
+            "reduced_a": reduced_a,
+            "reduced_b": reduced_b,
+            "reduced_R2": reduced_R2,
             "converged": False
         }
         
@@ -945,12 +965,10 @@ if st.session_state.show_calculation_results:
                 
                 if len(group_data) >= 2:
                     X = group_data["P"].values
-                    y = np.log10(group_data["sigma_MPa"].values)
-                    A = np.vstack([X, np.ones(len(X))]).T
+                    sigma_values = group_data["sigma_MPa"].values
                     try:
-                        a, b = np.linalg.lstsq(A, y, rcond=None)[0]
-                        R2 = 1 - np.sum((y - (a*X + b))**2) / np.sum((y - np.mean(y))**2)
-                        
+                        a, b, R2 = build_regression(X, sigma_values)
+
                         approximations[group_num] = {
                             'a': a,
                             'b': b,
@@ -958,7 +976,9 @@ if st.session_state.show_calculation_results:
                             'count': len(group_data),
                             'color': line_colors.get(group_num, 'gray'),
                             'name': st.session_state.group_names.get(str(group_num), f"Группа {group_num}"),
-                            'equation': format_approximation_equation(a, b, selected_param)
+                            'equation': format_approximation_equation(a, b, selected_param),
+                            'P_values': X,
+                            'sigma_values': sigma_values
                         }
                     except Exception as e:
                         st.warning(f"Не удалось построить аппроксимацию для группы {group_num}: {str(e)}")
@@ -1072,7 +1092,7 @@ if st.session_state.show_calculation_results:
                             st.success(f"✅ **Остаточный ресурс: {tau_prognoz:,.0f} ч** ({tau_prognoz/8760:.1f} лет)")
                             
                             reduced_equation = format_reduced_equation(
-                                approx['a'], approx['b'], calc['params']['k_zapas']
+                                calc_results['reduced_a'], calc_results['reduced_b']
                             )
                             current_sigma_fact = (calc['params']['p_MPa'] / 2) * (
                                 calc['params']['d_max'] / calc['params']['s_min'] + 1
