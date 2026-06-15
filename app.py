@@ -220,7 +220,17 @@ def build_test_results_table(df_tests: pd.DataFrame) -> pd.DataFrame:
         "Температура, °C",
         "Длительность испытания, ч"
     ]
-    return table_df[desired_columns]
+    table_df = table_df[desired_columns]
+
+    numeric_columns = [
+        "Напряжение, σ, МПа",
+        "Температура, °C",
+        "Длительность испытания, ч"
+    ]
+    for column in numeric_columns:
+        table_df[column] = table_df[column].round().astype(int)
+
+    return table_df
 
 
 def create_word_test_table(series_name: str, df_tests: pd.DataFrame) -> io.BytesIO:
@@ -470,7 +480,7 @@ else:
 df_tests = pd.DataFrame(st.session_state.test_data_input) if st.session_state.test_data_input else pd.DataFrame()
 
 if not df_tests.empty:
-    st.header("4.1 Таблица режимов и результатов испытаний")
+    st.header("Таблица режимов и результатов испытаний")
     st.table(build_test_results_table(df_tests))
 
 # --- Ввод общих параметров трубы для графика ---
@@ -759,6 +769,7 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
         # Итерационный расчет
         tau_prognoz = 50000.0
         iteration_data = []
+        lg_k_zapas = np.log10(k_zapas)
         
         for iter_num in range(100):
             # Будущая минимальная толщина
@@ -766,12 +777,11 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
             if s_min2 <= 0:
                 return None, {"error": "Толщина стенки станет ≤ 0"}
             
-            # Напряжение для будущего состояния
-            sigma_k2 = (p_MPa / 2) * (d_max / s_min2 + 1)
-            sigma_rasch2 = k_zapas * sigma_k2
+            # Фактическое напряжение для будущего состояния
+            sigma_fact2 = (p_MPa / 2) * (d_max / s_min2 + 1)
             
-            # Параметр P из уравнения аппроксимации
-            P_rab = (np.log10(sigma_rasch2) - b) / a
+            # Параметр P из уравнения аппроксимации, сниженного на коэффициент запаса
+            P_rab = (np.log10(sigma_fact2) - b - lg_k_zapas) / a
             
             # Время до разрушения
             if selected_param == "Трунина":
@@ -787,7 +797,7 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
                 "τ_р, ч": round(tau_r, 0),
                 "Разница, ч": round(tau_prognoz - tau_r, 0),
                 "s_min2, мм": round(s_min2, 3),
-                "σ_расч2, МПа": round(sigma_rasch2, 1)
+                "σ_факт2, МПа": round(sigma_fact2, 1)
             })
             
             if not np.isfinite(tau_r) or tau_r <= 0:
@@ -800,7 +810,7 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
                     "iterations": iteration_data,
                     "final_tau_r": tau_r,
                     "final_s_min2": s_min2,
-                    "final_sigma_rasch2": sigma_rasch2,
+                    "final_sigma_fact2": sigma_fact2,
                     "v_corr": v_corr,
                     "delta": delta,
                     "converged": True
@@ -819,7 +829,7 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
             "iterations": iteration_data,
             "final_tau_r": tau_r,
             "final_s_min2": s_min2,
-            "final_sigma_rasch2": sigma_rasch2,
+            "final_sigma_fact2": sigma_fact2,
             "v_corr": v_corr,
             "delta": delta,
             "converged": False
@@ -957,29 +967,17 @@ if st.button("🚀 Построить график и выполнить рас�
                 ax.plot(P_appr, sigma_vals, color=approx_data['color'], linestyle='--', 
                        linewidth=1.5, label=f'Аппроксимация Гр.{group_num} (R²={approx_data["R2"]:.3f})')
         
-        # 4. Фактическое состояние трубы (общий график)
-        ax.scatter(P_fact, sigma_fact_graph, c='green', s=120, marker='o',
-                  edgecolors='black', linewidth=1.5, 
-                  label=f'Факт: σ={sigma_fact_graph:.1f} МПа (без запаса)')
-        
-        ax.scatter(P_fact, sigma_rasch, c='red', s=120, marker='s',
-                  edgecolors='black', linewidth=1.5,
-                  label=f'Расч: σ={sigma_rasch:.1f} МПа (k={k_zapas})')
-        
-        ax.plot([P_fact, P_fact], [sigma_fact_graph, sigma_rasch], 
-               'k--', linewidth=1, alpha=0.5)
-        
         # Настройка графика
         ax.set_xlim(P_dop.min() - 0.1, P_dop.max() + 0.1)
         ax.set_ylim(20, 150)
         
         if selected_param == "Трунина":
-            xlabel_text = f"Параметр Трунина $P = T \\cdot (\\log_{{10}}(\\tau) - 2\\log_{{10}}(T) + {C:.2f}) \\cdot 10^{{-3}}$"
+            xlabel_text = f"Параметр Трунина $\\mathit{{P}} = \\mathit{{T}} \\cdot (\\log_{{10}}(\\mathregular{{τ}}) - 2\\log_{{10}}(\\mathit{{T}}) + {C:.2f}) \\cdot 10^{{-3}}$"
         else:
-            xlabel_text = f"Параметр Ларсона-Миллера $P = T \\cdot (\\log_{{10}}(\\tau) + {C:.2f}) \\cdot 10^{{-3}}$"
+            xlabel_text = f"Параметр Ларсона-Миллера $\\mathit{{P}} = \\mathit{{T}} \\cdot (\\log_{{10}}(\\mathregular{{τ}}) + {C:.2f}) \\cdot 10^{{-3}}$"
         
         ax.set_xlabel(xlabel_text, fontsize=10)
-        ax.set_ylabel(r"$\sigma$, МПа", fontsize=11)
+        ax.set_ylabel("σ, МПа", fontsize=11, fontstyle='normal')
         ax.set_title(f"Длительная прочность стали {selected_steel} - {series_name}", fontsize=12, pad=15)
         
         # Легенда справа от графика
@@ -1087,7 +1085,7 @@ if st.button("🚀 Построить график и выполнить рас�
                                     "Время до разрушения τ_р",
                                     "Разница (τ_прогн - τ_р)",
                                     "Минимальная толщина после ресурса",
-                                    "Напряжение после ресурса (с запасом)",
+                                    "Фактическое напряжение после ресурса",
                                     "Скорость коррозии",
                                     "Коэффициент аппроксимации a",
                                     "Коэффициент аппроксимации b",
@@ -1100,9 +1098,10 @@ if st.button("🚀 Построить график и выполнить рас�
                                 "Значение": [
                                     f"{tau_prognoz:,.0f} ч",
                                     f"{calc_results['final_tau_r']:,.0f} ч",
+
                                     f"{calc_results['delta']:.0f} ч",
                                     f"{calc_results['final_s_min2']:.3f} мм",
-                                    f"{calc_results['final_sigma_rasch2']:.1f} МПа",
+                                    f"{calc_results['final_sigma_fact2']:.1f} МПа",
                                     f"{calc_results['v_corr']:.6f} мм/ч",
                                     f"{approx['a']:.4f}",
                                     f"{approx['b']:.4f}",
