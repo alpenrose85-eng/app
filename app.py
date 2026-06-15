@@ -689,6 +689,14 @@ for idx, calc in enumerate(st.session_state.resource_calculations):
                 "s_мин, мм", value=float(calc['params']['s_min']), 
                 min_value=0.1, max_value=calc['params']['s_nom'], key=f"calc_s_min_{idx}"
             )
+            calc['params']['s_max'] = st.number_input(
+                "s_макс, мм", value=float(calc['params']['s_max']), 
+                min_value=0.1, max_value=1000.0, key=f"calc_s_max_{idx}"
+            )
+            calc['params']['tau_exp'] = st.number_input(
+                "τ_э, ч", value=int(calc['params']['tau_exp']), 
+                min_value=1, max_value=5_000_000, key=f"calc_tau_exp_{idx}"
+            )
             calc['params']['d_max'] = st.number_input(
                 "d_макс, мм", value=float(calc['params']['d_max']), 
                 min_value=0.1, max_value=1000.0, key=f"calc_d_max_{idx}"
