@@ -34,6 +34,8 @@ if 'resource_calculations' not in st.session_state:
     st.session_state.resource_calculations = []
 if 'group_names' not in st.session_state:
     st.session_state.group_names = {}
+if 'show_calculation_results' not in st.session_state:
+    st.session_state.show_calculation_results = False
 
 # --- Загрузка / сохранение проекта ---
 st.sidebar.header("📁 Сохранить / загрузить проект")
@@ -860,6 +862,9 @@ def calculate_residual_resource(params: Dict, approx: Dict, selected_param: str,
 
 # --- Основной расчет и построение графика ---
 if st.button("🚀 Построить график и выполнить расчеты"):
+    st.session_state.show_calculation_results = True
+
+if st.session_state.show_calculation_results:
     try:
         # --- 1. Расчет напряжений для фактического состояния (общий график) ---
         sigma_fact_graph = (p_MPa / 2) * (d_max / s_min + 1)
