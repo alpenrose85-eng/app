@@ -39,6 +39,11 @@ if 'show_calculation_results' not in st.session_state:
 if 'active_calculation_id' not in st.session_state:
     st.session_state.active_calculation_id = None
 
+
+def clamp_number(value, min_value, max_value):
+    return max(min_value, min(float(value), float(max_value)))
+
+
 # --- Загрузка / сохранение проекта ---
 st.sidebar.header("📁 Сохранить / загрузить проект")
 uploaded_file = st.sidebar.file_uploader("Загрузите проект (.json)", type=["json"])
@@ -518,7 +523,7 @@ with col1:
     s_nom = st.number_input("Номинальная толщина стенки s_н, мм", value=float(s_nom_val), min_value=0.1, max_value=1000.0)
     
     s_min_val = params.get("s_min", 5.07)
-    s_min = st.number_input("Текущая min толщина s_мин, мм", value=float(s_min_val), min_value=0.1, max_value=s_nom)
+    s_min = st.number_input("Текущая min толщина s_мин, мм", value=clamp_number(s_min_val, 0.1, s_nom), min_value=0.1, max_value=s_nom)
     
     s_max_val = params.get("s_max", 5.95)
     s_max = st.number_input("Текущая max толщина s_макс, мм", value=float(s_max_val), min_value=0.1, max_value=1000.0)
@@ -647,13 +652,6 @@ if st.button("➕ Добавить новый расчет остаточног�
         create_resource_calculation(next_id, f'Расчет {next_id}', default_group)
     )
 
-# Синхронизация основного расчета с текущими параметрами сверху
-for calc in st.session_state.resource_calculations:
-    if calc.get('name') == 'Основной расчет':
-        calc['params'] = get_current_pipe_params()
-        if selected_approx_groups and calc.get('selected_group', 0) == 0:
-            calc['selected_group'] = selected_approx_groups[0]
-
 # Отображение существующих расчетов
 for idx, calc in enumerate(st.session_state.resource_calculations):
     with st.expander(f"📊 {calc['name']} (ID: {calc['id']})", expanded=False):
@@ -684,6 +682,9 @@ for idx, calc in enumerate(st.session_state.resource_calculations):
             calc['params']['s_nom'] = st.number_input(
                 "s_н, мм", value=float(calc['params']['s_nom']), 
                 min_value=0.1, max_value=1000.0, key=f"calc_s_nom_{idx}"
+            )
+            calc['params']['s_min'] = clamp_number(
+                calc['params']['s_min'], 0.1, calc['params']['s_nom']
             )
             calc['params']['s_min'] = st.number_input(
                 "s_мин, мм", value=float(calc['params']['s_min']), 
